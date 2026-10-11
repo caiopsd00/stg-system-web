@@ -17,6 +17,7 @@ import { useRef, useState, type ReactNode } from "react";
 import type { FormIssue } from "./form-validation";
 import { InlineError } from "./FormErrors";
 import { AccordionRoot, Fold, openFold } from "./Accordion";
+import { createId } from "./id";
 import {
   reportProgress,
   reportPendingPaths,
@@ -225,7 +226,7 @@ export function ReportEditor({
               <button
                 type="button"
                 onClick={() => {
-                  const id = crypto.randomUUID();
+                  const id = createId();
                   reason(i, {
                     services: [
                       ...r.services,
@@ -261,7 +262,7 @@ export function ReportEditor({
         <button
           type="button"
           onClick={() => {
-            const id = crypto.randomUUID();
+            const id = createId();
             set({
               reasons: [
                 ...p.reasons,
@@ -382,7 +383,7 @@ export function ReportEditor({
         <button
           type="button"
           onClick={() => {
-            const id = crypto.randomUUID();
+            const id = createId();
             set({
               parts: [
                 ...p.parts,
@@ -475,7 +476,7 @@ export function ReportEditor({
         <button
           type="button"
           onClick={() => {
-            const id = crypto.randomUUID();
+            const id = createId();
             const day = newDay(id);
             set({
               days: [

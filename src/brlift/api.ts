@@ -1,4 +1,5 @@
 import type { CatalogKind, Entry, Media } from "../contracts/domain";
+import { createId } from "./id";
 export const API = import.meta.env.VITE_API_URL || "/api";
 let databaseId = "";
 export function databaseHeaders() {
@@ -28,10 +29,7 @@ export async function request<T = any>(
 export function catalogs(kind: CatalogKind) {
   return request("/catalog/" + kind);
 }
-export async function saveEntry(
-  entry: Entry,
-  mutationId = crypto.randomUUID(),
-) {
+export async function saveEntry(entry: Entry, mutationId = createId()) {
   return (
     await request(
       "/" + entry.kind + "/" + entry.id,

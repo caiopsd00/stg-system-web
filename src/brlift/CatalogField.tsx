@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Catalog, CatalogKind } from "../contracts/domain";
 import { request } from "./api";
+import { createId } from "./id";
 import { ChoiceButtons, Field } from "./Fields";
 import {
   canonicalDocument,
@@ -92,7 +93,7 @@ export function CatalogField({
       existing
         ? { ...existing, data: { ...existing.data } }
         : {
-            id: crypto.randomUUID(),
+            id: createId(),
             name: "",
             identifier: "",
             clientId: clientId || null,

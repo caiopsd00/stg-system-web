@@ -8,6 +8,7 @@ import { Fold, useAccordion, useAccordionPath } from "./Accordion";
 import { Field } from "./Fields";
 import { combineProgress, periodProgress } from "./report-progress";
 import { useFormErrors } from "./FormErrors";
+import { createId } from "./id";
 
 export function SchedulePeriods({
   day,
@@ -136,7 +137,7 @@ export function SchedulePeriods({
               <button
                 type="button"
                 onClick={() => {
-                  const id = crypto.randomUUID();
+                  const id = createId();
                   onChange([
                     ...periods,
                     { id, kind, start: "", end: "", pauseMinutes: "" },

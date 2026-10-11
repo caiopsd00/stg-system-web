@@ -23,6 +23,7 @@ import { usePendingMedia } from "./media-activity";
 import { finalizationIssues } from "./form-validation";
 import { FormErrors } from "./FormErrors";
 import { openFold } from "./Accordion";
+import { createId } from "./id";
 import "./style.css";
 const today = localDate;
 const emptyCatalog = (): Record<CatalogKind, Catalog[]> => ({
@@ -132,7 +133,7 @@ export default function App() {
     setDirty(true);
   }
   function create() {
-    const id = crypto.randomUUID();
+    const id = createId();
     const ownTechnician =
       user?.role === "admin"
         ? null
