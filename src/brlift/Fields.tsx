@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 import type { Media } from "../contracts/domain";
 import { mediaUrl, upload, uploadData } from "./api";
 import { DateField } from "./DateField";
@@ -187,6 +194,26 @@ export function Photos({
     [error, setError] = useState("");
   const latest = useRef({ value, onChange });
   latest.current = { value, onChange };
+  async function handleFiles(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    setBusy(true);
+    setError("");
+    const finish = beginMediaActivity();
+    try {
+      for (const file of files) {
+        const added = await upload(file);
+        latest.current.onChange([...latest.current.value, added]);
+        latest.current.value = [...latest.current.value, added];
+      }
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+      finish();
+    }
+  }
   return (
     <div className="br-photos">
       <div className="br-thumbs">
@@ -204,35 +231,30 @@ export function Photos({
           </div>
         ))}
       </div>
-      <label className="br-file">
-        {busy ? "Enviando..." : "Adicionar fotos"}
-        <input
-          aria-label="Adicionar fotos"
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          multiple
-          disabled={busy}
-          onChange={async (e) => {
-            const files = Array.from(e.target.files || []);
-            e.target.value = "";
-            setBusy(true);
-            setError("");
-            const finish = beginMediaActivity();
-            try {
-              for (const f of files) {
-                const added = await upload(f);
-                latest.current.onChange([...latest.current.value, added]);
-                latest.current.value = [...latest.current.value, added];
-              }
-            } catch (e) {
-              setError((e as Error).message);
-            } finally {
-              setBusy(false);
-              finish();
-            }
-          }}
-        />
-      </label>
+      <div className="br-photo-actions">
+        <label className="br-photo-action br-photo-camera">
+          Câmera
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            disabled={busy}
+            onChange={handleFiles}
+          />
+        </label>
+        <label className="br-photo-action">
+          <span className="br-photo-desktop-label">Adicionar fotos</span>
+          <span className="br-photo-mobile-label">Galeria</span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            disabled={busy}
+            onChange={handleFiles}
+          />
+        </label>
+      </div>
+      {busy && <p role="status">Enviando...</p>}
       {error && <p role="alert">{error}</p>}
     </div>
   );

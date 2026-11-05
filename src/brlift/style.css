@@ -757,8 +757,56 @@ td strong {
   font-size: 11px;
   padding: 6px;
 }
-.br-file {
-  max-width: 350px;
+.br-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.br-photo-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 43px;
+  margin: 0;
+  padding: 10px 15px;
+  border: 1px solid #41434a;
+  border-radius: 6px;
+  background: #26282e;
+  cursor: pointer;
+}
+.br-photo-action:hover {
+  border-color: #e0f12d;
+}
+.br-photo-action:focus-within {
+  outline: 2px solid #e0f12d;
+  outline-offset: 2px;
+}
+.br-photo-action > input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.br-photo-action:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.br-photo-camera,
+.br-photo-mobile-label {
+  display: none;
+}
+@media (pointer: coarse) {
+  .br-photo-camera,
+  .br-photo-mobile-label {
+    display: inline-flex;
+  }
+  .br-photo-desktop-label {
+    display: none;
+  }
 }
 .br-signature canvas {
   width: 100%;
