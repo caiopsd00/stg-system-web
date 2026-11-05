@@ -235,6 +235,7 @@ export function Photos({
         <label className="br-photo-action br-photo-camera">
           Câmera
           <input
+            aria-label="Tirar foto com a câmera"
             type="file"
             accept="image/*"
             capture="environment"
@@ -246,6 +247,7 @@ export function Photos({
           <span className="br-photo-desktop-label">Adicionar fotos</span>
           <span className="br-photo-mobile-label">Galeria</span>
           <input
+            aria-label="Adicionar fotos"
             type="file"
             accept="image/png,image/jpeg,image/webp"
             multiple

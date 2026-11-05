@@ -5,3 +5,16 @@ dist
 legacy
 postgres-data
 tests-output
+credentials
+secrets
+*credentials*.json
+*service-account*.json
+*service_account*.json
+*.pem
+*.key
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.dump
+backups

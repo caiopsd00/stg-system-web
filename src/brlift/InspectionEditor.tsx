@@ -468,6 +468,7 @@ export function InspectionEditor({
           <label>
             RESULTADO DA VISTORIA
             <select
+              aria-label="RESULTADO DA VISTORIA"
               value={normalizeInspectionResult(p.documentFields["011"] || "")}
               aria-invalid={!!fieldError("document.011")}
               onChange={(event) =>
