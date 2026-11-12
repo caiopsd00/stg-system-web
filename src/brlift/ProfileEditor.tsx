@@ -1,12 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { request } from "./api";
+import { userRoleLabels, type UserRole } from "../contracts/domain";
+import { changeFormattedInput, formatInput } from "./input-format";
 
 type Profile = {
   id: string;
   name: string;
   email: string;
   cpf: string;
-  role: "admin" | "technician";
+  role: UserRole;
 };
 
 export function ProfileEditor({
@@ -31,7 +33,7 @@ export function ProfileEditor({
         if (!mounted) return;
         setProfile(user);
         setName(user.name);
-        setCpf(user.cpf);
+        setCpf(formatInput(user.cpf, "cpf"));
         setEmail(user.email);
       })
       .catch((cause) => {
@@ -62,7 +64,7 @@ export function ProfileEditor({
       const updated = { ...result.user, cpf: cpf.replace(/\D/g, "") };
       setProfile(updated);
       setName(updated.name);
-      setCpf(updated.cpf);
+      setCpf(formatInput(updated.cpf, "cpf"));
       setEmail(updated.email);
       setCurrentPassword("");
       setNewPassword("");
@@ -107,7 +109,13 @@ export function ProfileEditor({
                   maxLength={300}
                   required
                   value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  onChange={(event) =>
+                    changeFormattedInput(
+                      event.currentTarget,
+                      (raw) => raw.toUpperCase(),
+                      setName,
+                    )
+                  }
                 />
               </label>
               <label>
@@ -118,7 +126,13 @@ export function ProfileEditor({
                   maxLength={14}
                   required
                   value={cpf}
-                  onChange={(event) => setCpf(event.target.value)}
+                  onChange={(event) =>
+                    changeFormattedInput(
+                      event.currentTarget,
+                      (raw) => formatInput(raw, "cpf"),
+                      setCpf,
+                    )
+                  }
                 />
               </label>
               <label>
@@ -134,9 +148,7 @@ export function ProfileEditor({
               </label>
               <div className="br-profile-role">
                 <span>Perfil de acesso</span>
-                <strong>
-                  {profile.role === "admin" ? "Administrador" : "Técnico"}
-                </strong>
+                <strong>{userRoleLabels[profile.role]}</strong>
                 <small>
                   Somente um administrador pode alterar este perfil.
                 </small>

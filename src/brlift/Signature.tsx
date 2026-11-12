@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Media } from "../contracts/domain";
+import {
+  signatureDateTime,
+  type Media,
+  type SignatureTarget,
+} from "../contracts/domain";
 import { mediaUrl, uploadData } from "./api";
 import { beginMediaActivity } from "./media-activity";
 import "./Signature.css";
@@ -11,11 +15,15 @@ export function Signature({
   value,
   onChange,
   error,
+  target,
+  defaultName = "",
 }: {
   label: string;
   value?: Media;
   onChange: (value: Media | undefined) => void;
   error?: string;
+  target: Omit<SignatureTarget, "signerName">;
+  defaultName?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -33,6 +41,18 @@ export function Signature({
           <span>Toque para assinar</span>
         )}
       </button>
+      {value && (
+        <p className="br-signature-caption">
+          <strong>
+            {value.signerName || defaultName || "Nome não registrado"}
+          </strong>
+          {" · "}
+          {target.signerRole === "technician"
+            ? "Técnico"
+            : "Representante do cliente"}
+          {value.createdAt && <> · {signatureDateTime(value.createdAt)}</>}
+        </p>
+      )}
       <div className="br-actions">
         <button type="button" onClick={() => setOpen(true)}>
           Assinar
@@ -54,6 +74,8 @@ export function Signature({
         <SignatureDialog
           label={label}
           value={value}
+          target={target}
+          defaultName={defaultName}
           onCancel={() => setOpen(false)}
           onSave={(media) => {
             onChange(media);
@@ -69,11 +91,15 @@ function SignatureDialog({
   value,
   onCancel,
   onSave,
+  target,
+  defaultName,
 }: {
   label: string;
   value?: Media;
   onCancel: () => void;
   onSave: (media: Media | undefined) => void;
+  target: Omit<SignatureTarget, "signerName">;
+  defaultName: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
     canvas = useRef<HTMLCanvasElement>(null),
@@ -85,6 +111,9 @@ function SignatureDialog({
   const [busy, setBusy] = useState(false),
     [loading, setLoading] = useState(!!value),
     [error, setError] = useState("");
+  const [signerName, setSignerName] = useState(
+    value?.signerName || defaultName.toUpperCase(),
+  );
   const latest = useRef({ onSave, onCancel });
   latest.current = { onSave, onCancel };
   function draw() {
@@ -219,8 +248,16 @@ function SignatureDialog({
       setError("Desenhe a assinatura antes de salvar.");
       return;
     }
-    if (!modified.current && value) {
+    if (
+      !modified.current &&
+      value &&
+      signerName.trim() === (value.signerName || defaultName.toUpperCase())
+    ) {
       latest.current.onSave(value);
+      return;
+    }
+    if (!signerName.trim()) {
+      setError("Informe o nome de quem assinou.");
       return;
     }
     setBusy(true);
@@ -230,6 +267,7 @@ function SignatureDialog({
       const result = await uploadData(
         canvas.current!.toDataURL("image/png"),
         label + ".png",
+        { ...target, signerName: signerName.trim() },
       );
       latest.current.onSave(result);
     } catch (e) {
@@ -257,6 +295,19 @@ function SignatureDialog({
         <p>
           Assine na área branca. No celular, vire de lado para ter mais espaço.
         </p>
+        <label className="br-signature-name">
+          Nome de quem assinou
+          <input
+            aria-label="Nome de quem assinou"
+            maxLength={300}
+            disabled={busy}
+            value={signerName}
+            onChange={(event) => {
+              setSignerName(event.target.value.toUpperCase());
+              setError("");
+            }}
+          />
+        </label>
       </header>
       <div className="br-signature-stage" ref={stage}>
         <canvas

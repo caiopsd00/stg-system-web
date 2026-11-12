@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { Catalog, Entry, Media } from "../contracts/domain";
+import type { Catalog, Day, Entry, Media } from "../contracts/domain";
 import {
   documentFields,
   documentImageSlots,
@@ -8,15 +8,31 @@ import {
 import { Field, Photos, TextField } from "./Fields";
 import { Signature } from "./Signature";
 import { AccordionRoot, Fold } from "./Accordion";
-import { combineProgress, type Progress } from "./report-progress";
+import { combineProgress, dayProgress, type Progress } from "./report-progress";
+import { ApplicableField } from "./EquipmentEditor";
+import { ScheduleDays } from "./ScheduleDays";
 import { dateISO, dateParts } from "./date-utils";
 import { CatalogField } from "./CatalogField";
 import type { FormIssue } from "./form-validation";
 import { InlineError } from "./FormErrors";
 import { filterInspectionSections } from "./inspection-search";
 
-const equipmentFieldKeys = ["001", "002", "003", "004", "005", "008"];
-const readingFieldKeys = ["006", "007"];
+const equipmentFieldKeys = [
+  "001",
+  "002",
+  "003",
+  "004",
+  "005",
+  "008",
+  "equipmentBrand",
+  "equipmentPlate",
+  "equipmentFleet",
+];
+const readingFields = [
+  ["007", "KM"],
+  ["006", "Hor. Inferior"],
+  ["hourmeterUpper", "Hor. Superior"],
+] as const;
 
 const situations = ["A", "B", "C", "D"] as const;
 const situationLabels: Record<(typeof situations)[number], string> = {
@@ -64,16 +80,10 @@ function documentProgress(fields: Record<string, string>): Progress {
 function inspectionIdentityProgress(entry: Entry): Progress {
   const document = documentProgress(entry.payload.documentFields);
   if (document.state === "invalid") return document;
-  if (!entry.number.trim())
-    return progress("pending", "Informe o número identificador único");
+  if (!entry.number.trim()) return progress("pending", "Informe a O.S. OMIE");
   if (!entry.clientId || !entry.technicianId || !entry.equipmentId)
     return progress("pending", "Selecione cliente, responsável e equipamento");
-  if (!normalizeInspectionResult(entry.payload.documentFields["011"] || ""))
-    return progress("pending", "Selecione o resultado da vistoria");
-  return progress(
-    "complete",
-    "Identificador único informado; dados complementares editáveis",
-  );
+  return progress("complete", "O.S. OMIE e dados obrigatórios informados");
 }
 
 function initialPath(entry: Entry): string[] {
@@ -306,7 +316,12 @@ export function InspectionEditor({
       ),
     }))
     .find((candidate: any) => candidate.item);
+  const days = (p.days || []) as Day[];
   const statuses: Record<string, Progress> = {
+    schedule: combineProgress(
+      days.map((day) => dayProgress(day, true)),
+      "Cronograma não informado (opcional)",
+    ),
     A: inspectionIdentityProgress(entry),
     B: combineProgress(
       p.sections.map((section: any) =>
@@ -318,12 +333,11 @@ export function InspectionEditor({
       "Checklist ainda não preenchido",
     ),
     C:
-      p.technicianSignature?.uri && (p.clientSignature?.uri || p.signature?.uri)
-        ? progress(
-            "complete",
-            "Assinaturas do técnico e do cliente registradas",
-          )
-        : progress("pending", "Assinaturas do técnico e do cliente pendentes"),
+      normalizeInspectionResult(p.documentFields["011"] || "") &&
+      p.technicianSignature?.uri &&
+      (p.clientSignature?.uri || p.signature?.uri)
+        ? progress("complete", "Resultado e assinaturas registrados")
+        : progress("pending", "Preencha o resultado e as assinaturas"),
   };
   const pendingPaths: Record<string, string[]> = {
     A: ["A"],
@@ -414,6 +428,16 @@ export function InspectionEditor({
         <div className="br-grid">
           {documentFields
             .filter((f) => equipmentFieldKeys.includes(f.key))
+            .filter((f) => {
+              const separate =
+                "equipmentPlate" in p.documentFields ||
+                "equipmentFleet" in p.documentFields;
+              return f.key === "008"
+                ? !separate
+                : ["equipmentPlate", "equipmentFleet"].includes(f.key)
+                  ? separate
+                  : true;
+            })
             .map((f) => (
               <Field
                 key={f.key}
@@ -428,22 +452,24 @@ export function InspectionEditor({
           Dados do cadastro. Para criar ou alterar, use os botões do equipamento
           acima.
         </p>
-        <h3>Leituras e dados da vistoria</h3>
+        <h3>Horímetro e quilometragem</h3>
         <div className="br-grid">
-          {documentFields
-            .filter((f) => readingFieldKeys.includes(f.key))
-            .map((f) => (
-              <Field
-                key={f.key}
-                label={f.label}
-                value={p.documentFields[f.key]}
-                onChange={(value) =>
-                  update({
-                    documentFields: { ...p.documentFields, [f.key]: value },
-                  })
-                }
-              />
-            ))}
+          {readingFields.map(([key, label]) => (
+            <ApplicableField
+              key={key}
+              label={label}
+              numeric
+              value={p.documentFields[key]}
+              error={fieldError("document." + key)}
+              onChange={(value) =>
+                update({
+                  documentFields: { ...p.documentFields, [key]: value },
+                })
+              }
+            />
+          ))}
+        </div>
+        <div className="br-grid">
           {documentFields
             .filter((f) => ["010", "012"].includes(f.key))
             .map((f) => (
@@ -465,51 +491,6 @@ export function InspectionEditor({
                 }
               />
             ))}
-          <label>
-            RESULTADO DA VISTORIA
-            <select
-              aria-label="RESULTADO DA VISTORIA"
-              value={normalizeInspectionResult(p.documentFields["011"] || "")}
-              aria-invalid={!!fieldError("document.011")}
-              onChange={(event) =>
-                update({
-                  documentFields: {
-                    ...p.documentFields,
-                    "011": event.target.value,
-                  },
-                })
-              }
-            >
-              <option value="">Selecione</option>
-              <option value="Aprovada">Aprovada</option>
-              <option value="Rejeitada">Rejeitada</option>
-            </select>
-            <InlineError field="document.011" />
-          </label>
-        </div>
-        <div className="br-inspection-approver">
-          <CatalogField
-            kind="technicians"
-            label="Inspeção aprovada por"
-            value={p.approvedByTechnicianId || null}
-            items={technicians}
-            reload={reloadCatalog}
-            onChange={(id, selected) =>
-              update({
-                approvedByTechnicianId: id,
-                documentFields: {
-                  ...p.documentFields,
-                  "165": selected?.name || "",
-                },
-              })
-            }
-          />
-          {!p.approvedByTechnicianId && p.documentFields["165"] && (
-            <p className="muted">
-              Aprovação anterior: {p.documentFields["165"]}. Selecione o
-              cadastro correspondente para vincular.
-            </p>
-          )}
         </div>
         <Fold
           id="A-imagens"
@@ -538,6 +519,20 @@ export function InspectionEditor({
             </div>
           ))}
         </Fold>
+      </Fold>
+      <Fold
+        id="schedule"
+        title="Cronograma de atendimento"
+        main
+        status={statuses.schedule}
+      >
+        <ScheduleDays
+          days={days}
+          entry={entry}
+          technicians={technicians}
+          showTravel
+          onChange={(days) => update({ days })}
+        />
       </Fold>
       <Fold id="B" title="Checklist técnico" main status={statuses.B}>
         <p>
@@ -733,8 +728,66 @@ export function InspectionEditor({
         )}
       </Fold>
       <Fold id="C" title="Assinatura e finalização" main status={statuses.C}>
+        <div className="br-grid">
+          <label>
+            RESULTADO DA VISTORIA
+            <select
+              aria-label="RESULTADO DA VISTORIA"
+              value={normalizeInspectionResult(p.documentFields["011"] || "")}
+              aria-invalid={!!fieldError("document.011")}
+              onChange={(event) =>
+                update({
+                  documentFields: {
+                    ...p.documentFields,
+                    "011": event.target.value,
+                  },
+                })
+              }
+            >
+              <option value="">Selecione</option>
+              <option value="Aprovada">Aprovada</option>
+              <option value="Rejeitada">Rejeitada</option>
+            </select>
+            <InlineError field="document.011" />
+          </label>
+        </div>
+        <div className="br-inspection-approver">
+          <CatalogField
+            kind="technicians"
+            label="Inspeção aprovada por"
+            value={p.approvedByTechnicianId || null}
+            unavailableLabel={p.documentFields["165"]}
+            items={technicians}
+            reload={reloadCatalog}
+            onChange={(id, selected) =>
+              update({
+                approvedByTechnicianId: id,
+                documentFields: {
+                  ...p.documentFields,
+                  "165": selected?.name || "",
+                },
+              })
+            }
+          />
+          {!p.approvedByTechnicianId && p.documentFields["165"] && (
+            <p className="muted">
+              Aprovação anterior: {p.documentFields["165"]}. Selecione o
+              cadastro correspondente para vincular.
+            </p>
+          )}
+        </div>
         <Signature
           label="Assinatura do técnico"
+          target={{
+            kind: "inspections",
+            recordId: entry.id,
+            signerRole: "technician",
+          }}
+          defaultName={
+            technicians.find((t) => t.id === entry.technicianId)?.name ||
+            entry.technicianName ||
+            p.documentFields["164"]
+          }
           error={fieldError("technicianSignature")}
           value={p.technicianSignature}
           onChange={(technicianSignature: Media | undefined) =>
@@ -743,6 +796,12 @@ export function InspectionEditor({
         />
         <Signature
           label="Assinatura do cliente"
+          target={{
+            kind: "inspections",
+            recordId: entry.id,
+            signerRole: "client",
+          }}
+          defaultName={entry.clientName || p.clientSnapshot?.name}
           error={fieldError("clientSignature")}
           value={p.clientSignature || p.signature}
           onChange={(clientSignature: Media | undefined) =>

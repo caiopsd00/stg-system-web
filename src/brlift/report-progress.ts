@@ -10,6 +10,9 @@ import type {
 } from "../contracts/domain";
 import {
   dayPeriods,
+  hasPeriodData,
+  isNonTravelReport,
+  periodReadingIssue,
   periodNetMinutes,
   hasReportTravel,
   participantDay,
@@ -58,13 +61,21 @@ export function combineProgress(
 export function memberProgress(
   member: TeamMember,
   team: TeamMember[],
+  requireCharged = false,
 ): Progress {
   if (!member.technicianId) return result("empty", "Selecione o profissional");
   if (team.filter((m) => m.technicianId === member.technicianId).length > 1)
     return result("invalid", "Profissional repetido");
+  if (requireCharged && !member.charged)
+    return result("pending", "Informe se o serviço foi cobrado");
   return result("complete", "Profissional e função definidos");
 }
-export function serviceProgress(s: Service): Progress {
+export function serviceProgress(
+  s: Service,
+  requireCompleted = false,
+): Progress {
+  if (filled(s.description) && requireCompleted && !s.completed)
+    return result("pending", "Informe se o serviço foi concluído");
   return filled(s.description)
     ? result(
         "complete",
@@ -75,15 +86,17 @@ export function serviceProgress(s: Service): Progress {
         "Descreva o serviço realizado",
       );
 }
-export function reasonProgress(r: Reason): Progress {
+export function reasonProgress(r: Reason, requireCompleted = false): Progress {
   if (!filled(r.description))
     return result(
       r.services.length || r.pending ? "pending" : "empty",
       "Descreva o motivo",
     );
   if (!r.services.length)
-    return result("pending", "Adicione pelo menos um serviço");
-  const services = combineProgress(r.services.map(serviceProgress));
+    return result("pending", "Informe o serviço realizado");
+  const services = combineProgress(
+    r.services.map((s) => serviceProgress(s, requireCompleted)),
+  );
   return services.state === "complete"
     ? result(
         "complete",
@@ -98,16 +111,16 @@ export function partProgress(p: Part): Progress {
   if (!Number.isFinite(p.quantity) || p.quantity <= 0)
     return result("invalid", "Quantidade deve ser maior que zero");
   if (!["requested", "replaced"].includes(p.kind))
-    return result("invalid", "Selecione a classificação");
+    return result("invalid", "Selecione o tipo de serviço");
   if (!filled(p.code))
     return result(
       p.description || p.supplier ? "pending" : "empty",
       "Informe o código da peça",
     );
-  return result("complete", "Código, quantidade e classificação válidos");
+  return result("complete", "Código, quantidade e tipo de serviço válidos");
 }
-export function periodProgress(p: DayPeriod): Progress {
-  if (!p.start && !p.end && !p.pauseMinutes)
+export function periodProgress(p: DayPeriod, requireKm = false): Progress {
+  if (!hasPeriodData(p))
     return result("empty", "Informe início e fim; pausa é opcional");
   if ([p.start, p.end].some((v) => v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v)))
     return result("invalid", "Horário inválido");
@@ -118,16 +131,21 @@ export function periodProgress(p: DayPeriod): Progress {
     return result("invalid", "Pausa inválida");
   if (!p.start || !p.end)
     return result("pending", "Complete início e fim deste período");
+  const reading = periodReadingIssue(p);
+  if (reading) return result("invalid", reading);
   try {
+    const duration = periodNetMinutes(p);
+    if (requireKm && (!p.odometerStart || !p.odometerEnd))
+      return result("pending", "Informe KM inicial e final ou N/A");
     return result(
       "complete",
-      `${periodNetMinutes(p)} min líquidos; pausa descontada somente deste período`,
+      `${duration} min líquidos; pausa descontada somente deste período`,
     );
   } catch (e) {
     return result("invalid", (e as Error).message);
   }
 }
-export function dayProgress(d: Day): Progress {
+export function dayProgress(d: Day, requireKm = false): Progress {
   if (d.participants !== undefined) {
     if (!d.date) return result("pending", "Informe a data");
     if (!realDate(d.date)) return result("invalid", "Data inexistente");
@@ -140,7 +158,7 @@ export function dayProgress(d: Day): Progress {
     if (!present.length)
       return result("pending", "Selecione quem trabalhou neste dia");
     return combineProgress(
-      present.map((x) => participantProgress(d, x.technicianId)),
+      present.map((x) => participantProgress(d, x.technicianId, requireKm)),
     );
   }
   const periods = dayPeriods(d);
@@ -152,7 +170,8 @@ export function dayProgress(d: Day): Progress {
   ];
   if (
     !readings.some(filled) &&
-    !periods.some((p) => p.start || p.end || p.pauseMinutes)
+    !d.notes?.trim() &&
+    !periods.some(hasPeriodData)
   )
     return result("empty", "Sem dados operacionais; dia não contabilizado");
   if (!d.date) return result("pending", "Informe a data");
@@ -173,17 +192,27 @@ export function dayProgress(d: Day): Progress {
     )
   )
     return result("invalid", "Horário inválido");
-  const progress = periods.map(periodProgress);
+  if (requireKm && !periods.some((p) => p.start && p.end))
+    return result("pending", "Informe os horários do dia");
+  const progress = periods.map((p) => periodProgress(p, requireKm));
   const invalid = progress.find((p) => p.state === "invalid");
   if (invalid) return invalid;
   const pending = progress.find((p) => p.state === "pending");
   if (pending) return pending;
   return result("complete", "Data, leituras e períodos válidos");
 }
-export function participantProgress(day: Day, id: string): Progress {
+export function participantProgress(
+  day: Day,
+  id: string,
+  requireKm = false,
+): Progress {
   try {
     const resolved = participantDay(day, id);
-    const progress = dayProgress(resolved);
+    const progress = dayProgress(
+      resolved,
+      requireKm &&
+        !day.participants?.find((p) => p.technicianId === id)?.sameVehicleAs,
+    );
     if (
       progress.state === "complete" &&
       !dayPeriods(resolved).some((p) => p.start && p.end)
@@ -198,38 +227,31 @@ export function participantProgress(day: Day, id: string): Progress {
 }
 export function reportProgress(entry: Entry): Record<string, Progress> {
   const p = entry.payload as Report;
-  const team: TeamMember[] = [
-    { technicianId: entry.technicianId || "", role: "technician" },
-    ...(p.additionalTechnicians ??
-      p.auxiliaries
-        .filter((id) => id !== entry.technicianId)
-        .map((technicianId) => ({ technicianId, role: "auxiliary" as const }))),
-  ];
-  const teamState = combineProgress(team.map((m) => memberProgress(m, team)));
+  const revised = p.formRevision === 2;
+  const team = reportTeam(entry);
+  const teamState = combineProgress(
+    team.map((m) => memberProgress(m, team, revised)),
+  );
   const anyIdentity = !!(
     entry.number ||
     entry.clientId ||
     entry.technicianId ||
-    p.operator ||
     p.requester ||
     p.location
   );
   let A = result(
     anyIdentity ? "pending" : "empty",
-    "Informe número, data, cliente e equipe",
+    "Informe O.S. OMIE, cliente e equipe",
   );
-  if (entry.date && !realDate(entry.date))
-    A = result("invalid", "Data inválida");
-  else if (teamState.state === "invalid") A = teamState;
+  if (teamState.state === "invalid") A = teamState;
   else if (
     filled(entry.number) &&
-    entry.date &&
     entry.clientId &&
     teamState.state === "complete"
   )
     A = result(
       "complete",
-      "Dados obrigatórios preenchidos; operador, solicitante e local são opcionais",
+      "Dados obrigatórios preenchidos; solicitante, veículo e local são opcionais",
     );
   const eq = p.equipment;
   let B = result(
@@ -248,20 +270,24 @@ export function reportProgress(entry: Entry): Record<string, Progress> {
       "Cadastro válido; ano, placa, frota e leituras são opcionais",
     );
   const C = combineProgress(
-    p.reasons.map(reasonProgress),
+    p.reasons.map((r) => reasonProgress(r, revised)),
     "Adicione pelo menos um motivo e seu serviço",
   );
   const D = combineProgress(p.parts.map(partProgress));
   let E = combineProgress(
-    p.days.map(dayProgress).filter((day) => day.state !== "empty"),
+    p.days
+      .map((d) => dayProgress(d, revised))
+      .filter((day) => day.state !== "empty"),
     "Cronograma não informado (opcional)",
   );
-  if (p.type === "interno" && hasReportTravel(p))
-    E = result("invalid", "Atendimento interno não utiliza deslocamento");
+  if (isNonTravelReport(p.type) && hasReportTravel(p))
+    E = result(
+      "invalid",
+      "Atendimento interno ou remoto não utiliza deslocamento",
+    );
   const finalValues = [
     p.concluded,
     p.released,
-    p.photosSent,
     p.technicianSignature?.uri,
     p.clientSignature?.uri,
   ];
@@ -273,7 +299,7 @@ export function reportProgress(entry: Entry): Record<string, Progress> {
         : "empty",
     finalValues.every(filled)
       ? "Status e assinaturas registrados"
-      : "Preencha os três status e salve ambas as assinaturas",
+      : "Preencha o status e salve ambas as assinaturas",
   );
   return { A, B, C, D, E, F };
 }
@@ -283,13 +309,8 @@ export function reportProgress(entry: Entry): Record<string, Progress> {
 export function reportPendingPaths(entry: Entry): Record<string, string[]> {
   const p = entry.payload as Report;
   const paths: Record<string, string[]> = {};
-  const team: TeamMember[] = [
-    { technicianId: entry.technicianId || "", role: "technician" },
-    ...(p.additionalTechnicians ??
-      (p.auxiliaries || [])
-        .filter((id) => id !== entry.technicianId)
-        .map((technicianId) => ({ technicianId, role: "auxiliary" as const }))),
-  ];
+  const revised = p.formRevision === 2;
+  const team = reportTeam(entry);
   const unfinished = <T>(items: T[], progress: (item: T) => Progress) => {
     const invalid = items.findIndex(
       (item) => progress(item).state === "invalid",
@@ -298,31 +319,30 @@ export function reportPendingPaths(entry: Entry): Record<string, string[]> {
       ? invalid
       : items.findIndex((item) => progress(item).state !== "complete");
   };
-  const member = unfinished(team, (m) => memberProgress(m, team));
+  const member = unfinished(team, (m) => memberProgress(m, team, revised));
   paths["A/team"] =
     member < 0 ? ["A", "team"] : ["A", "team", `tech-${member}`];
-  paths.A =
-    filled(entry.number) && realDate(entry.date) && entry.clientId
-      ? paths["A/team"]
-      : ["A"];
+  paths.A = filled(entry.number) && entry.clientId ? paths["A/team"] : ["A"];
   // A complete team does not require opening anything when returning to A.
   if (member < 0) paths.A = ["A"];
   for (const reason of p.reasons) {
-    const base = ["C", reason.id],
-      services = [...base, `services-${reason.id}`];
-    const index = unfinished(reason.services, serviceProgress);
-    paths[services.join("/")] =
-      index < 0 ? services : [...services, reason.services[index].id];
+    const base = ["C", reason.id];
+    const servicesPath = [...base, `services-${reason.id}`];
+    const index = unfinished(reason.services, (s) =>
+      serviceProgress(s, revised),
+    );
     paths[base.join("/")] =
-      filled(reason.description) && (index >= 0 || !reason.services.length)
-        ? paths[services.join("/")]
+      filled(reason.description) && index >= 0
+        ? [...servicesPath, reason.services[index].id]
         : base;
+    paths[servicesPath.join("/")] =
+      index >= 0 ? [...servicesPath, reason.services[index].id] : servicesPath;
   }
-  const reason = unfinished(p.reasons, reasonProgress);
+  const reason = unfinished(p.reasons, (r) => reasonProgress(r, revised));
   paths.C = reason < 0 ? ["C"] : paths[["C", p.reasons[reason].id].join("/")];
   const part = unfinished(p.parts, partProgress);
   paths.D = part < 0 ? ["D"] : ["D", p.parts[part].id];
-  const day = unfinished(p.days, dayProgress);
+  const day = unfinished(p.days, (d) => dayProgress(d, revised));
   for (const d of p.days) {
     const people = dayParticipants(d, reportTeam(entry));
     if (people.length || d.participants !== undefined) {
@@ -331,27 +351,36 @@ export function reportPendingPaths(entry: Entry): Record<string, string[]> {
       const present = people.filter((x) => x.present);
       const pending = present.find(
         (x) =>
-          participantProgress(current, x.technicianId).state !== "complete",
+          participantProgress(current, x.technicianId, revised).state !==
+          "complete",
       );
       paths[base.join("/")] = base;
       for (const person of present) {
         const personPath = [...base, `person-${person.technicianId}`];
         paths[personPath.join("/")] = personPath;
-        if (!person.sameHoursAs) {
-          const index = unfinished(person.periods, periodProgress);
+        if (!person.sameHoursAs || revised) {
+          let periods: DayPeriod[];
+          try {
+            periods = dayPeriods(participantDay(current, person.technicianId));
+          } catch {
+            continue;
+          }
+          const progress = (period: DayPeriod) =>
+            periodProgress(period, revised && !person.sameVehicleAs);
+          const index = unfinished(periods, progress);
           if (
             index >= 0 &&
             ![person.odometerStart, person.odometerEnd].some(readingInvalid)
           )
             paths[personPath.join("/")] = [
               ...personPath,
-              `periods-${person.periods[index].kind}`,
-              person.periods[index].id,
+              `periods-${periods[index].kind}`,
+              periods[index].id,
             ];
           for (const kind of ["outbound", "work", "inbound"] as const) {
             const group = [...personPath, `periods-${kind}`],
-              items = person.periods.filter((p) => p.kind === kind),
-              i = unfinished(items, periodProgress);
+              items = periods.filter((p) => p.kind === kind),
+              i = unfinished(items, progress);
             paths[group.join("/")] = i < 0 ? group : [...group, items[i].id];
           }
         }
@@ -363,7 +392,7 @@ export function reportPendingPaths(entry: Entry): Record<string, string[]> {
     }
     const base = ["E", d.id],
       periods = dayPeriods(d),
-      index = unfinished(periods, periodProgress);
+      index = unfinished(periods, (p) => periodProgress(p, revised));
     paths[base.join("/")] =
       index < 0 ||
       !realDate(d.date) ||
@@ -373,7 +402,7 @@ export function reportPendingPaths(entry: Entry): Record<string, string[]> {
     for (const kind of ["outbound", "work", "inbound"] as const) {
       const group = [...base, `periods-${kind}`],
         items = periods.filter((p) => p.kind === kind),
-        i = unfinished(items, periodProgress);
+        i = unfinished(items, (p) => periodProgress(p, revised));
       paths[group.join("/")] = i < 0 ? group : [...group, items[i].id];
     }
   }

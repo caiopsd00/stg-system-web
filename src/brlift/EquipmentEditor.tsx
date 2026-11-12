@@ -28,6 +28,7 @@ export function ApplicableField({
       <Field
         label={label}
         type={numeric && value !== "N/A" ? "number" : "text"}
+        inputMode={numeric ? "decimal" : undefined}
         value={value}
         error={error}
         onChange={onChange}
@@ -68,9 +69,9 @@ export function EquipmentEditor({
   const upperError = useFieldError("equipment.hourmeterUpper");
   const data = entry.payload.equipment as Record<string, string>;
   const readingFields = [
-    ["odometer", "KM na data"],
-    ["hourmeterLower", "Horímetro inferior na data"],
-    ["hourmeterUpper", "Horímetro superior na data"],
+    ["odometer", "KM"],
+    ["hourmeterLower", "Hor. Inferior"],
+    ["hourmeterUpper", "Hor. Superior"],
   ] as const;
   function readingError(values: Record<string, string>) {
     for (const [key, label] of readingFields) {
@@ -89,6 +90,7 @@ export function EquipmentEditor({
     <Section title="B. Equipamento">
       <CatalogField
         kind="equipment"
+        showNominalCapacity={false}
         fieldError={equipmentError}
         value={entry.equipmentId}
         clientId={entry.clientId}
@@ -115,26 +117,30 @@ export function EquipmentEditor({
         </p>
       )}
       <div className="br-grid">
-        {equipmentFields.map(([key, label]) => (
-          <Field
-            key={key}
-            label={label}
-            value={data[key]}
-            readOnly
-            onChange={() => {}}
-          />
-        ))}
+        {equipmentFields
+          .filter(([key]) => key !== "nominalCapacity")
+          .map(([key, label]) => (
+            <Field
+              key={key}
+              label={label}
+              value={data[key]}
+              readOnly
+              onChange={() => {}}
+            />
+          ))}
       </div>
       <p className="muted">
         Dados somente para consulta. Para criar ou alterar o cadastro, use +
         Equipamento ou Editar equipamento.
       </p>
-      <h3>
-        Leituras do atendimento —{" "}
-        {entry.date
-          ? entry.date.split("-").reverse().join("/")
-          : "informe a data"}
-      </h3>
+      <Field
+        label="Operador"
+        value={entry.payload.operator}
+        onChange={(operator) =>
+          onChange({ ...entry, payload: { ...entry.payload, operator } })
+        }
+      />
+      <h3>Horímetro e quilometragem</h3>
       <div className="br-grid">
         {readingFields.map(([key, label]) => (
           <ApplicableField

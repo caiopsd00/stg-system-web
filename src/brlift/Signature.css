@@ -49,6 +49,14 @@
   margin: 6px 0 0;
   font-size: 13px;
 }
+.br-signature-dialog .br-signature-name {
+  display: grid;
+  max-width: 420px;
+  margin-top: 8px;
+}
+.br-signature .br-signature-caption {
+  margin: 0 0 10px;
+}
 .br-signature-stage {
   flex: 1;
   min-height: 0;

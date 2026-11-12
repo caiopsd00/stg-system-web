@@ -2,9 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type { Catalog, CatalogKind, Entry, Kind } from "../contracts/domain";
 import {
   newReport,
+  catalogKinds,
+  canAdminister,
+  isTechnician,
+  singleService,
+  type Report,
   validateReport,
   validateReportTeam,
-  localDate,
 } from "../contracts/domain";
 import {
   createTemplateSections,
@@ -25,12 +29,13 @@ import { FormErrors } from "./FormErrors";
 import { openFold } from "./Accordion";
 import { createId } from "./id";
 import "./style.css";
-const today = localDate;
 const emptyCatalog = (): Record<CatalogKind, Catalog[]> => ({
   clients: [],
   technicians: [],
   equipment: [],
   parts: [],
+  vehicles: [],
+  rentalCompanies: [],
 });
 const emptyFilters = () => ({
   q: "",
@@ -73,25 +78,22 @@ export default function App() {
   }, []);
   async function reloadCatalog() {
     const version = ++catalogRequestVersion.current;
-    const [c, t, e, p] = await Promise.all(
-      ["clients", "technicians", "equipment", "parts"].map((k) =>
-        catalogs(k as CatalogKind),
+    const catalogsByKind = await Promise.all(
+      catalogKinds.map(
+        async (kind) => [kind, (await catalogs(kind)).items] as const,
       ),
     );
     if (version === catalogRequestVersion.current)
-      setCatalog({
-        clients: c.items,
-        technicians: t.items,
-        equipment: e.items,
-        parts: p.items,
-      });
+      setCatalog(
+        Object.fromEntries(catalogsByKind) as Record<CatalogKind, Catalog[]>,
+      );
   }
   async function reload() {
     const version = ++listRequestVersion.current;
     const params = new URLSearchParams(
       Object.entries(filters).filter(
         ([key, value]) =>
-          value && (user?.role === "admin" || key !== "technicianId"),
+          value && (canAdminister(user?.role) || key !== "technicianId"),
       ),
     );
     const r = await request("/" + kind + "?" + params);
@@ -133,11 +135,11 @@ export default function App() {
     setDirty(true);
   }
   function create() {
+    if (busy) return;
     const id = createId();
-    const ownTechnician =
-      user?.role === "admin"
-        ? null
-        : catalog.technicians.find((item) => item.data.userId === user.id);
+    const ownTechnician = isTechnician(user?.role)
+      ? catalog.technicians.find((item) => item.data.userId === user.id)
+      : null;
     setEntry({
       id,
       kind,
@@ -145,15 +147,18 @@ export default function App() {
       clientId: null,
       technicianId: ownTechnician?.id || null,
       equipmentId: null,
-      date: today(),
+      vehicleId: null,
+      date: "",
       status: "draft",
       version: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: "",
+      updatedAt: "",
       payload:
         kind === "reports"
-          ? newReport()
+          ? { ...newReport(), formRevision: 2 }
           : {
+              formRevision: 2,
+              days: [],
               id,
               name: "Inspeção BR LIFT",
               documentFields: Object.fromEntries(
@@ -173,6 +178,36 @@ export default function App() {
     setConfirmFinalize(false);
     setError("");
     setNotice("");
+    setBusy(true);
+    void request("/" + kind + "/" + id + "/filling-start", {})
+      .catch((cause) => setError((cause as Error).message))
+      .finally(() => setBusy(false));
+  }
+  function editRecord(record: Entry) {
+    const next = structuredClone(record);
+    next.payload.formRevision = 2;
+    let merged = false;
+    if (next.kind === "reports") {
+      const report = next.payload as Report;
+      merged = report.reasons.some((reason) => reason.services.length > 1);
+      report.reasons = report.reasons.map((reason) => ({
+        ...reason,
+        services: [singleService(reason)],
+      }));
+    } else {
+      next.payload.days ??= [];
+      next.payload.clientSignature ??= next.payload.signature;
+    }
+    setEntry(next);
+    setDirty(false);
+    setFinalizeAttempted(false);
+    setConfirmFinalize(false);
+    setError("");
+    setNotice(
+      merged
+        ? "Os serviços antigos de cada motivo foram reunidos, preservando descrições, observações e fotos."
+        : "",
+    );
   }
   function leave() {
     if (busy) {
@@ -380,7 +415,7 @@ export default function App() {
             aria-pressed={!accountPage && kind === "reports"}
             onClick={() => navigate("reports")}
           >
-            Operacional
+            Relatório Técnico
           </button>
           <button
             aria-pressed={!accountPage && kind === "inspections"}
@@ -388,7 +423,7 @@ export default function App() {
           >
             Inspeções
           </button>
-          {user.role === "admin" && (
+          {canAdminister(user.role) && (
             <button
               aria-pressed={accountPage === "users"}
               onClick={() => navigate("users")}
@@ -396,7 +431,7 @@ export default function App() {
               Cadastros
             </button>
           )}
-          {user.role !== "admin" && (
+          {!canAdminister(user.role) && (
             <button
               aria-pressed={accountPage === "profile"}
               onClick={() => navigate("profile")}
@@ -436,11 +471,19 @@ export default function App() {
           <UserRegistration
             currentUserId={user.id}
             onUserUpdated={(updated) => {
-              if (updated.id === user.id && updated.role !== user.role)
-                clearSessionData();
-              setUser((current: any) => ({ ...current, ...updated }));
-              if (updated.id === user.id && updated.role !== "admin")
-                setAccountPage(null);
+              if (updated.id !== user.id) {
+                void reloadCatalog().catch((cause) =>
+                  setError((cause as Error).message),
+                );
+                return;
+              }
+              if (updated.role !== user.role) clearSessionData();
+              setUser((current: any) =>
+                current?.id === updated.id
+                  ? { ...current, ...updated }
+                  : current,
+              );
+              if (!canAdminister(updated.role)) setAccountPage(null);
             }}
             onCreated={async () => {
               try {
@@ -487,7 +530,8 @@ export default function App() {
                 {(entry.kind === "reports" || entry.kind === "inspections") && (
                   <div className="br-grid" style={{ marginBottom: 20 }}>
                     <Field
-                      label="Número identificador (único)"
+                      label="O.S. OMIE"
+                      inputMode="numeric"
                       error={
                         formIssues.find((issue) => issue.key === "number")
                           ?.message
@@ -626,21 +670,21 @@ export default function App() {
             <div className="br-title">
               <div>
                 <p className="muted">
-                  {user.role === "admin"
+                  {canAdminister(user.role)
                     ? "PAINEL DE GESTÃO"
                     : "MEUS REGISTROS"}
                 </p>
                 <h1>
                   {kind === "reports"
-                    ? user.role === "admin"
+                    ? canAdminister(user.role)
                       ? "Atendimentos técnicos"
                       : "Meus atendimentos"
-                    : user.role === "admin"
+                    : canAdminister(user.role)
                       ? "Inspeções"
                       : "Minhas inspeções"}
                 </h1>
               </div>
-              <button className="primary" onClick={create}>
+              <button className="primary" onClick={create} disabled={busy}>
                 + {kind === "reports" ? "Novo atendimento" : "Nova inspeção"}
               </button>
             </div>
@@ -664,7 +708,7 @@ export default function App() {
             <section className="br-section br-grid">
               <Field
                 label={
-                  user.role === "admin"
+                  canAdminister(user.role)
                     ? "Buscar número, cliente ou técnico"
                     : "Buscar número ou cliente"
                 }
@@ -699,7 +743,7 @@ export default function App() {
                   ))}
                 </select>
               </label>
-              {user.role === "admin" && (
+              {canAdminister(user.role) && (
                 <label>
                   Técnico
                   <select
@@ -735,7 +779,7 @@ export default function App() {
               <table>
                 <thead>
                   <tr>
-                    <th>Número / data</th>
+                    <th>O.S. OMIE</th>
                     <th>Cliente</th>
                     <th>Técnico</th>
                     <th>Status / progresso</th>
@@ -750,7 +794,11 @@ export default function App() {
                       <tr key={e.id}>
                         <td>
                           <strong>{e.number}</strong>
-                          <small>{e.date.split("-").reverse().join("/")}</small>
+                          {e.payload.formRevision !== 2 && (
+                            <small>
+                              {e.date.split("-").reverse().join("/")}
+                            </small>
+                          )}
                         </td>
                         <td>{e.clientName || "Não informado"}</td>
                         <td>{e.technicianName || "Não informado"}</td>
@@ -768,13 +816,7 @@ export default function App() {
                         <td>
                           <div className="br-actions">
                             <button onClick={() => setDetail(e)}>Resumo</button>
-                            <button
-                              onClick={() => {
-                                setEntry(structuredClone(e));
-                                setError("");
-                                setNotice("");
-                              }}
-                            >
+                            <button onClick={() => editRecord(e)}>
                               Editar
                             </button>
                             <button disabled={busy} onClick={() => pdf(e)}>
@@ -809,7 +851,8 @@ export default function App() {
                 {detail.clientName} · {detail.technicianName}
               </p>
               <p>
-                {detail.date.split("-").reverse().join("/")} ·{" "}
+                {detail.payload.formRevision !== 2 &&
+                  detail.date.split("-").reverse().join("/") + " · "}
                 {detail.status === "finalized"
                   ? "Finalizado"
                   : "Em preenchimento"}
@@ -818,7 +861,7 @@ export default function App() {
               <div className="br-actions">
                 <button
                   onClick={() => {
-                    setEntry(structuredClone(detail));
+                    editRecord(detail);
                     setDetail(null);
                   }}
                 >

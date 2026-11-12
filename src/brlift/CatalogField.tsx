@@ -5,17 +5,21 @@ import { createId } from "./id";
 import { ChoiceButtons, Field } from "./Fields";
 import {
   canonicalDocument,
+  equipmentLabel,
   equipmentTypes,
   permanentEquipment,
   validateEquipment,
 } from "../contracts/domain";
 export { equipmentFields } from "../contracts/domain";
 import { equipmentFields } from "../contracts/domain";
+import { formatInput } from "./input-format";
 export const kindLabels = {
   clients: "Cliente",
   technicians: "Técnico",
   equipment: "Equipamento",
   parts: "Peça",
+  vehicles: "Veículo",
+  rentalCompanies: "Locadora",
 };
 export function CatalogField({
   kind,
@@ -29,6 +33,8 @@ export function CatalogField({
   initialData,
   unavailableLabel,
   fieldError,
+  rentalCompanies = [],
+  showNominalCapacity = true,
 }: {
   kind: CatalogKind;
   value: string | null;
@@ -41,6 +47,8 @@ export function CatalogField({
   initialData?: Record<string, string>;
   unavailableLabel?: string;
   fieldError?: string;
+  rentalCompanies?: Catalog[];
+  showNominalCapacity?: boolean;
 }) {
   const selected = items.find((i) => i.id === value),
     [edit, setEdit] = useState<any>(null),
@@ -53,8 +61,23 @@ export function CatalogField({
     try {
       if (kind === "equipment") {
         validateEquipment(permanentEquipment(draft.data));
+      } else if (kind === "rentalCompanies") {
+        if (!draft.name.trim()) throw Error("Informe o nome da locadora.");
+        if (
+          items.some(
+            (item) =>
+              item.id !== draft.id &&
+              item.name.trim().toUpperCase() ===
+                draft.name.trim().toUpperCase(),
+          )
+        )
+          throw Error(
+            "Essa locadora já foi cadastrada. Selecione a existente.",
+          );
       } else {
-        if (!draft.name.trim())
+        if (kind === "vehicles" && !draft.data.rentalCompanyId)
+          throw Error("Selecione a locadora.");
+        if (kind !== "vehicles" && !draft.name.trim())
           throw Error(
             kind === "parts"
               ? "Informe a descrição da peça."
@@ -111,17 +134,19 @@ export function CatalogField({
     setBusy(true);
     setError("");
     try {
+      const data =
+        kind === "equipment" ? permanentEquipment(edit.data) : edit.data;
+      // A report cannot edit this inspection-only field. Omitting it also
+      // preserves an existing capacity in the shared equipment catalog.
+      if (kind === "equipment" && !showNominalCapacity)
+        delete data.nominalCapacity;
       const { item } = await request(
         "/catalog/" + kind + "/" + edit.id,
         {
           ...edit,
           name:
-            edit.name.trim() ||
-            [edit.data.type, edit.data.brand, edit.data.model, edit.data.serial]
-              .filter(Boolean)
-              .join(" "),
-          data:
-            kind === "equipment" ? permanentEquipment(edit.data) : edit.data,
+            kind === "equipment" ? equipmentLabel(edit.data) : edit.name.trim(),
+          data,
           baseVersion: edit.version,
         },
         "PUT",
@@ -163,8 +188,18 @@ export function CatalogField({
             .filter((i) => kind !== "equipment" || i.clientId === clientId)
             .map((i) => (
               <option key={i.id} value={i.id}>
-                {i.name}
-                {i.identifier ? " — " + i.identifier : ""}
+                {kind === "equipment" ? equipmentLabel(i.data, i.name) : i.name}
+                {kind === "vehicles" && i.data.model
+                  ? " — " + i.data.model
+                  : ""}
+                {i.identifier && kind !== "vehicles"
+                  ? " — " +
+                    (kind === "clients"
+                      ? formatInput(i.identifier, "cnpj")
+                      : kind === "technicians"
+                        ? formatInput(i.identifier, "cpf")
+                        : i.identifier)
+                  : ""}
               </option>
             ))}
         </select>
@@ -233,23 +268,63 @@ export function CatalogField({
               {kindLabels[kind].toLowerCase()}
             </h2>
             <fieldset className="br-form-content" disabled={busy}>
-              <Field
-                label={kind === "parts" ? "Descrição da peça" : "Nome"}
-                value={edit.name}
-                onChange={(v) => changeEdit({ name: v })}
-              />
-              {kind !== "equipment" && (
+              {kind !== "equipment" && kind !== "vehicles" && (
+                <Field
+                  label={kind === "parts" ? "Descrição da peça" : "Nome"}
+                  value={edit.name}
+                  onChange={(v) => changeEdit({ name: v })}
+                />
+              )}
+              {kind !== "equipment" && kind !== "rentalCompanies" && (
                 <Field
                   label={
                     kind === "clients"
                       ? "CNPJ"
                       : kind === "technicians"
                         ? "CPF"
-                        : "Código"
+                        : kind === "vehicles"
+                          ? "Placa"
+                          : "Código"
                   }
                   value={edit.identifier}
                   onChange={(v) => changeEdit({ identifier: v })}
                 />
+              )}
+              {kind === "vehicles" && (
+                <>
+                  <CatalogField
+                    kind="rentalCompanies"
+                    value={edit.data.rentalCompanyId || null}
+                    items={rentalCompanies}
+                    reload={reload}
+                    unavailableLabel={edit.data.rentalCompanyName}
+                    onChange={(id, item) =>
+                      changeEdit({
+                        data: {
+                          ...edit.data,
+                          rentalCompanyId: id,
+                          rentalCompanyName: item?.name || "",
+                        },
+                      })
+                    }
+                  />
+                  <div className="br-grid">
+                    <Field
+                      label="Modelo (opcional)"
+                      value={edit.data.model}
+                      onChange={(model) =>
+                        changeEdit({ data: { ...edit.data, model } })
+                      }
+                    />
+                    <Field
+                      label="Cor (opcional)"
+                      value={edit.data.color}
+                      onChange={(color) =>
+                        changeEdit({ data: { ...edit.data, color } })
+                      }
+                    />
+                  </div>
+                </>
               )}
               {kind === "equipment" && (
                 <>
@@ -267,11 +342,16 @@ export function CatalogField({
                   />
                   <div className="br-grid">
                     {equipmentFields
-                      .filter(([key]) => key !== "type")
+                      .filter(
+                        ([key]) =>
+                          key !== "type" &&
+                          (showNominalCapacity || key !== "nominalCapacity"),
+                      )
                       .map(([key, label]) => (
                         <div key={key}>
                           <Field
                             label={label}
+                            inputMode={key === "year" ? "numeric" : undefined}
                             value={edit.data[key]}
                             onChange={(v) =>
                               changeEdit({ data: { ...edit.data, [key]: v } })

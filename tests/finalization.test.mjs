@@ -106,6 +106,42 @@ test("peça, profissional e cronograma recebem caminhos internos de erro", () =>
   ]);
 });
 
+test("serviço pendente abre o grupo e o subitem numerado; corrigir limpa seus erros", () => {
+  const entry = base("reports", newReport());
+  entry.payload.formRevision = 2;
+  entry.payload.reasons = [
+    {
+      id: "reason",
+      description: "Falha",
+      pending: "Revisar no próximo dia",
+      services: [
+        {
+          id: "service",
+          description: "",
+          notes: "Observação mista",
+          photos: [],
+          completed: "",
+        },
+      ],
+    },
+  ];
+  const errors = finalizationIssues(entry).filter((issue) =>
+    issue.key.startsWith("service."),
+  );
+  assert.equal(errors.length, 2);
+  for (const error of errors)
+    assert.deepEqual(error.path, ["C", "reason", "services-reason", "service"]);
+  Object.assign(entry.payload.reasons[0].services[0], {
+    description: "Serviço ajustado",
+    completed: "Sim",
+  });
+  assert.ok(
+    !finalizationIssues(entry).some((issue) =>
+      issue.key.startsWith("service."),
+    ),
+  );
+});
+
 test("inspeção mostra item pendente e assinaturas separadas; resolução remove erros", () => {
   const payload = {
     documentFields: { "011": "" },

@@ -8,14 +8,14 @@ import {
   type Catalog,
   type Day,
   type DayParticipant,
+  type DayPeriod,
   type Entry,
 } from "../contracts/domain";
 import { Fold, useAccordion, useAccordionPath } from "./Accordion";
-import { ApplicableField } from "./EquipmentEditor";
-import { TextField, Field } from "./Fields";
+import { TextField } from "./Fields";
 import { SchedulePeriods } from "./SchedulePeriods";
 import { participantProgress } from "./report-progress";
-import { InlineError, useFormErrors } from "./FormErrors";
+import { InlineError } from "./FormErrors";
 import "./DayTeam.css";
 
 export function DayTeam({
@@ -36,9 +36,6 @@ export function DayTeam({
     current = { ...day, participants: people };
   const path = useAccordionPath(),
     accordion = useAccordion()!;
-  const issues = useFormErrors();
-  const fieldError = (key: string) =>
-    issues.find((issue) => issue.key === key)?.message;
   const name = (id: string) =>
     technicians.find((t) => t.id === id)?.name ||
     entry.payload.teamSnapshot?.find(
@@ -127,21 +124,56 @@ export function DayTeam({
             person.sameHoursAs ||
             person.sameVehicleAs ||
             references[0]?.technicianId;
-          const ownDay = {
-            ...resolved,
-            periods: person.sameVehicleAs
-              ? [
-                  ...person.periods.filter((p) => p.kind === "work"),
-                  ...resolved.periods!.filter((p) => p.kind !== "work"),
-                ]
-              : person.periods,
+          const changePeriods = (periods: DayPeriod[]) => {
+            if (person.sameHoursAs) {
+              // The timing belongs to the reference; keep each vehicle's own readings.
+              const saved = person.periods.map((period) => ({ ...period }));
+              const seen: Record<DayPeriod["kind"], number> = {
+                outbound: 0,
+                work: 0,
+                inbound: 0,
+              };
+              for (const period of periods) {
+                const index = seen[period.kind]++;
+                const existing =
+                  saved.find(
+                    (p) => p.kind === period.kind && p.id === period.id,
+                  ) || saved.filter((p) => p.kind === period.kind)[index];
+                if (existing) {
+                  existing.odometerStart = period.odometerStart;
+                  existing.odometerEnd = period.odometerEnd;
+                } else if (period.odometerStart || period.odometerEnd)
+                  saved.push({ ...period });
+              }
+              update(person.technicianId, { periods: saved });
+              return;
+            }
+            update(person.technicianId, {
+              periods: person.sameVehicleAs
+                ? [
+                    ...periods
+                      .filter((p) => p.kind === "work")
+                      .map((period) => {
+                        const own = person.periods.find(
+                          (p) => p.id === period.id,
+                        );
+                        return {
+                          ...period,
+                          odometerStart: own?.odometerStart,
+                          odometerEnd: own?.odometerEnd,
+                        };
+                      }),
+                    ...person.periods.filter((p) => p.kind !== "work"),
+                  ]
+                : periods,
+            });
           };
           return (
             <Fold
               key={person.technicianId}
               id={`person-${person.technicianId}`}
               title={name(person.technicianId)}
-              status={participantProgress(current, person.technicianId)}
+              status={participantProgress(current, person.technicianId, true)}
               summary={
                 team.find((x) => x.technicianId === person.technicianId)
                   ?.role === "auxiliary"
@@ -228,92 +260,34 @@ export function DayTeam({
                   )}
                 </div>
               )}
-              {showTravel &&
-                (person.sameVehicleAs ? (
-                  <div>
-                    <p>
-                      Mesmo carro de {name(person.sameVehicleAs)}: KM
-                      contabilizado uma única vez. Ida, volta e suas pausas
-                      acompanham esse profissional; o trabalho pode ter horários
-                      diferentes.
-                    </p>
-                    <div className="br-grid">
-                      <Field
-                        label="KM inicial (mesmo carro)"
-                        readOnly
-                        value={resolved.odometerStart}
-                        onChange={() => {}}
-                      />
-                      <Field
-                        label="KM final (mesmo carro)"
-                        readOnly
-                        value={resolved.odometerEnd}
-                        onChange={() => {}}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="br-grid">
-                    <ApplicableField
-                      label="KM inicial"
-                      error={fieldError(
-                        `day.${day.id}.${person.technicianId}.odometerStart`,
-                      )}
-                      numeric
-                      value={person.odometerStart}
-                      onChange={(odometerStart) =>
-                        update(person.technicianId, { odometerStart })
-                      }
-                    />
-                    <ApplicableField
-                      label="KM final"
-                      error={fieldError(
-                        `day.${day.id}.${person.technicianId}.odometerEnd`,
-                      )}
-                      numeric
-                      value={person.odometerEnd}
-                      onChange={(odometerEnd) =>
-                        update(person.technicianId, { odometerEnd })
-                      }
-                    />
-                  </div>
-                ))}
-              {person.sameHoursAs ? (
-                <div>
-                  <p>
-                    Horários e pausas acompanham {name(person.sameHoursAs)}.
-                    Desmarque “Mesmo horário” para ajustar separadamente.
-                  </p>
-                  {resolved.periods!.map((p) => (
-                    <p key={`${p.kind}-${p.id}`}>
-                      {
-                        { work: "Trabalho", outbound: "Ida", inbound: "Volta" }[
-                          p.kind
-                        ]
-                      }
-                      : {p.start || "—"} às {p.end || "—"} · pausa:{" "}
-                      {p.pauseMinutes || "0"} min
-                    </p>
-                  ))}
-                </div>
-              ) : (
-                <SchedulePeriods
-                  day={ownDay}
-                  errorPrefix={`period.${day.id}.${person.technicianId}`}
-                  showTravel={showTravel}
-                  sharedTravel={!!person.sameVehicleAs}
-                  onChange={(periods) =>
-                    update(person.technicianId, {
-                      periods: person.sameVehicleAs
-                        ? [
-                            ...periods.filter((p) => p.kind === "work"),
-                            ...person.periods.filter((p) => p.kind !== "work"),
-                          ]
-                        : periods,
-                    })
-                  }
-                />
+              {person.sameVehicleAs && (
+                <p className="muted">
+                  Mesmo carro de {name(person.sameVehicleAs)}: KM contabilizado
+                  uma única vez. Ida, volta e pausas acompanham a referência; o
+                  trabalho pode ter horários diferentes.
+                </p>
               )}
+              {person.sameHoursAs && (
+                <p className="muted">
+                  Horários e pausas acompanham {name(person.sameHoursAs)}. O KM
+                  continua individual quando não é o mesmo carro.
+                </p>
+              )}
+              {(resolved.odometerStart || resolved.odometerEnd) && (
+                <p className="muted">
+                  KM histórico do dia: {resolved.odometerStart || "—"} /{" "}
+                  {resolved.odometerEnd || "—"}. Informe as novas leituras em
+                  cada período.
+                </p>
+              )}
+              <SchedulePeriods
+                day={resolved}
+                errorPrefix={"period." + day.id + "." + person.technicianId}
+                showTravel={showTravel}
+                sharedTravel={!!person.sameVehicleAs}
+                sharedHours={!!person.sameHoursAs}
+                onChange={changePeriods}
+              />
               <InlineError field={`day.${day.id}.${person.technicianId}`} />
             </Fold>
           );

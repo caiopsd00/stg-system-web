@@ -1,18 +1,23 @@
-import type { Catalog, Entry, Report, Part } from "../contracts/domain";
+import type {
+  Catalog,
+  Entry,
+  Report,
+  Part,
+  Service,
+  YesNo,
+} from "../contracts/domain";
 import {
-  dayTotals,
-  hasDayData,
-  newDay,
   hasReportTravel,
   changeReportType,
-  reportTeam,
-  dayParticipants,
+  isNonTravelReport,
+  reportTypeLabels,
+  singleService,
 } from "../contracts/domain";
 import { Field, TextField, Section, Photos, ChoiceButtons } from "./Fields";
 import { Signature as ReportSignature } from "./Signature";
 import { CatalogField } from "./CatalogField";
 import { EquipmentEditor } from "./EquipmentEditor";
-import { DayTeam } from "./DayTeam";
+import { ScheduleDays } from "./ScheduleDays";
 import { useRef, useState, type ReactNode } from "react";
 import type { FormIssue } from "./form-validation";
 import { InlineError } from "./FormErrors";
@@ -24,8 +29,6 @@ import {
   reasonProgress,
   serviceProgress,
   partProgress,
-  dayProgress,
-  combineProgress,
 } from "./report-progress";
 export function ReportEditor({
   entry,
@@ -53,7 +56,7 @@ export function ReportEditor({
   const statuses = reportProgress(entry);
   const fieldError = (key: string) =>
     validationIssues.find((issue) => issue.key === key)?.message;
-  const showTravel = p.type !== "interno" || hasReportTravel(p);
+  const showTravel = !isNonTravelReport(p.type) || hasReportTravel(p);
   const latest = useRef({ entry, onChange });
   latest.current = { entry, onChange };
   const set = (patch: Partial<Report>) =>
@@ -87,28 +90,28 @@ export function ReportEditor({
         <div className="br-grid">
           <ChoiceButtons
             label="Tipo de atendimento"
-            options={[
-              { value: "externo", label: "Externo" },
-              { value: "interno", label: "Interno (Galpão BR LIFT)" },
-            ]}
+            options={Object.entries(reportTypeLabels).map(([value, label]) => ({
+              value,
+              label,
+            }))}
             value={p.type}
             onChange={(type) => {
               if (
-                type === "interno" &&
+                isNonTravelReport(type) &&
                 hasReportTravel(p) &&
                 !confirm(
-                  "O atendimento interno usa somente trabalho e pausa. Remover os dados de deslocamento do cronograma?",
+                  "O atendimento interno ou remoto usa somente períodos de trabalho. Remover os dados de deslocamento do cronograma?",
                 )
               )
                 return;
               set(changeReportType(p, type));
             }}
           />
-          {(["operator", "requester", "location"] as const).map((k, i) =>
-            k === "location" && p.type === "interno" ? null : (
+          {(["requester", "location"] as const).map((k, i) =>
+            k === "location" && isNonTravelReport(p.type) ? null : (
               <Field
                 key={k}
-                label={["Operador", "Solicitante", "Local"][i]}
+                label={["Solicitante", "Local"][i]}
                 value={p[k]}
                 onChange={(v) => set({ [k]: v })}
               />
@@ -116,26 +119,23 @@ export function ReportEditor({
           )}
         </div>
         {team}
-        {p.type === "interno" && (
+        {isNonTravelReport(p.type) && (
           <p className="muted">
-            Atendimento no galpão: somente trabalho e pausa, sem KM de
-            deslocamento nem ida/volta. As leituras do equipamento continuam
-            disponíveis.
+            Atendimento interno ou remoto: não há períodos de ida/volta. Informe
+            o KM do período de trabalho ou marque N/A.
           </p>
         )}
-        {p.type === "interno" && hasReportTravel(p) && (
+        {isNonTravelReport(p.type) && hasReportTravel(p) && (
           <button
             type="button"
             onClick={() => {
               if (
-                confirm(
-                  "Remover os dados de deslocamento deste atendimento interno?",
-                )
+                confirm("Remover os dados de deslocamento deste atendimento?")
               )
-                set(changeReportType(p, "interno"));
+                set(changeReportType(p, p.type));
             }}
           >
-            Ajustar cronograma para atendimento interno
+            Remover deslocamentos do cronograma
           </button>
         )}
       </Section>
@@ -146,119 +146,93 @@ export function ReportEditor({
         reload={reloadCatalog}
       />
       <Section title="C. Motivos, serviços e pendências">
-        {p.reasons.map((r, i) => (
-          <Fold
-            key={r.id}
-            id={r.id}
-            title={`Motivo ${i + 1}`}
-            summary={r.description || "Novo motivo"}
-            status={reasonProgress(r)}
-          >
-            <TextField
-              label="Descrição do motivo"
-              error={fieldError(`reason.${r.id}`)}
-              value={r.description}
-              onChange={(v) => reason(i, { description: v })}
-            />
+        {p.reasons.map((r, i) => {
+          const service = singleService(r);
+          const change = (patch: Partial<Service>) =>
+            reason(i, { services: [{ ...service, ...patch }] });
+          return (
             <Fold
-              id={`services-${r.id}`}
-              title="Serviços deste motivo"
-              summary={`${r.services.length} serviço(s)`}
-              status={combineProgress(
-                r.services.map(serviceProgress),
-                "Adicione pelo menos um serviço",
-              )}
+              key={r.id}
+              id={r.id}
+              title={"Motivo " + (i + 1)}
+              summary={r.description || "Novo motivo"}
+              status={reasonProgress(r, true)}
             >
-              <InlineError field={`services.${r.id}`} />
-              {r.services.map((svc, j) => (
+              <TextField
+                label="Descrição do motivo"
+                preserveCase
+                error={fieldError("reason." + r.id)}
+                value={r.description}
+                onChange={(description) => reason(i, { description })}
+              />
+              <Fold
+                id={`services-${r.id}`}
+                title="Serviço realizado"
+                summary={service.description || "Novo serviço"}
+                status={serviceProgress(service, true)}
+              >
                 <Fold
-                  key={svc.id}
-                  id={svc.id}
-                  title={`Serviço ${j + 1}`}
-                  summary={svc.description || "Novo serviço"}
-                  status={serviceProgress(svc)}
+                  id={service.id}
+                  title="Serviço realizado 1"
+                  summary={service.description || "Novo serviço"}
+                  status={serviceProgress(service, true)}
                 >
                   <TextField
                     label="Serviço realizado"
-                    error={fieldError(`service.${svc.id}`)}
-                    value={svc.description}
-                    onChange={(v) =>
-                      reason(i, {
-                        services: r.services.map((s, k) =>
-                          k === j ? { ...s, description: v } : s,
-                        ),
-                      })
-                    }
+                    preserveCase
+                    error={fieldError("service." + service.id)}
+                    value={service.description}
+                    onChange={(description) => change({ description })}
                   />
+                  <label>
+                    Serviço concluído?
+                    <select
+                      aria-label="Serviço concluído?"
+                      value={service.completed || ""}
+                      aria-invalid={
+                        !!fieldError("service." + service.id + ".completed")
+                      }
+                      onChange={(event) =>
+                        change({ completed: event.target.value as YesNo })
+                      }
+                    >
+                      <option value="">Selecione</option>
+                      <option value="Sim">Sim</option>
+                      <option value="Não">Não</option>
+                    </select>
+                    <InlineError
+                      field={"service." + service.id + ".completed"}
+                    />
+                  </label>
                   <TextField
                     label="Observações do serviço"
-                    value={svc.notes}
-                    onChange={(v) =>
-                      reason(i, {
-                        services: r.services.map((s, k) =>
-                          k === j ? { ...s, notes: v } : s,
-                        ),
-                      })
-                    }
+                    preserveCase
+                    value={service.notes}
+                    onChange={(notes) => change({ notes })}
                   />
                   <Photos
-                    value={svc.photos}
-                    onChange={(v) =>
-                      reason(i, {
-                        services: r.services.map((s, k) =>
-                          k === j ? { ...s, photos: v } : s,
-                        ),
-                      })
-                    }
+                    value={service.photos}
+                    onChange={(photos) => change({ photos })}
                   />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      reason(i, {
-                        services: r.services.filter((_, k) => k !== j),
-                      })
-                    }
-                  >
-                    Remover serviço
-                  </button>
                 </Fold>
-              ))}
+              </Fold>
+              <TextField
+                label="Pendências / próximos passos deste motivo"
+                preserveCase
+                value={r.pending}
+                onChange={(pending) => reason(i, { pending })}
+              />
               <button
                 type="button"
-                onClick={() => {
-                  const id = createId();
-                  reason(i, {
-                    services: [
-                      ...r.services,
-                      {
-                        id,
-                        description: "",
-                        notes: "",
-                        photos: [],
-                      },
-                    ],
-                  });
-                  openFold(["C", r.id, `services-${r.id}`, id]);
-                }}
+                onClick={() =>
+                  set({ reasons: p.reasons.filter((_, j) => i !== j) })
+                }
               >
-                + Serviço deste motivo
+                Remover motivo
               </button>
             </Fold>
-            <TextField
-              label="Pendências / próximos passos deste motivo"
-              value={r.pending}
-              onChange={(v) => reason(i, { pending: v })}
-            />
-            <button
-              type="button"
-              onClick={() =>
-                set({ reasons: p.reasons.filter((_, j) => i !== j) })
-              }
-            >
-              Remover motivo
-            </button>
-          </Fold>
-        ))}
+          );
+        })}
         <button
           type="button"
           onClick={() => {
@@ -270,7 +244,14 @@ export function ReportEditor({
                   id,
                   description: "",
                   pending: "",
-                  services: [],
+                  services: [
+                    singleService({
+                      id,
+                      description: "",
+                      pending: "",
+                      services: [],
+                    }),
+                  ],
                 },
               ],
             });
@@ -339,11 +320,11 @@ export function ReportEditor({
                 onChange={(quantity) => part(i, { quantity: Number(quantity) })}
               />
               <label>
-                Classificação
+                Tipo de serviço
                 <select
                   value={v.kind}
                   aria-invalid={!!fieldError(`part.${v.id}.kind`)}
-                  aria-label="Classificação"
+                  aria-label="Tipo de serviço"
                   onChange={(e) =>
                     part(i, { kind: e.target.value as Part["kind"] })
                   }
@@ -356,7 +337,7 @@ export function ReportEditor({
             </div>
             <p className="muted">
               Código, descrição e fornecedor são dados do cadastro. Use + Peça
-              ou Editar peça. Quantidade e classificação pertencem somente a
+              ou Editar peça. Quantidade e tipo de serviço pertencem somente a
               este atendimento.
             </p>
             {!v.catalogId && v.code && (
@@ -405,110 +386,21 @@ export function ReportEditor({
         </button>
       </Section>
       <Section title="E. Cronograma de atendimento">
-        <InlineError field="schedule.travel" />
-        {p.days.map((d, i) => {
-          const update = (patch: any) =>
-            set({
-              days: p.days.map((day, j) =>
-                j === i ? { ...day, ...patch } : day,
-              ),
-            });
-          let summary = "Dia sem dados operacionais: não será contabilizado.";
-          try {
-            if (hasDayData(d)) {
-              const t = dayTotals(d);
-              summary =
-                t.work +
-                " min de trabalho · " +
-                t.travel +
-                " min de deslocamento · " +
-                t.km +
-                " km";
-            }
-          } catch (e) {
-            summary = (e as Error).message;
-          }
-          return (
-            <Fold
-              key={d.id}
-              id={d.id}
-              title={`Dia ${i + 1}`}
-              status={dayProgress(d)}
-              summary={
-                d.date
-                  ? new Date(d.date + "T12:00:00").toLocaleDateString("pt-BR", {
-                      weekday: "long",
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                    })
-                  : "Selecione a data"
-              }
-            >
-              <div className="br-grid">
-                <Field
-                  label="Data do dia"
-                  error={fieldError(`day.${d.id}.date`)}
-                  type="date"
-                  value={d.date}
-                  onChange={(date) => update({ date })}
-                />
-              </div>
-              <DayTeam
-                day={d}
-                entry={entry}
-                technicians={technicians}
-                showTravel={showTravel}
-                onChange={update}
-              />
-              <InlineError field={`day.${d.id}.periods`} />
-              <InlineError field={`day.${d.id}.totals`} />
-              <p>{summary}</p>
-              <button
-                type="button"
-                onClick={() => set({ days: p.days.filter((_, j) => i !== j) })}
-              >
-                Remover dia
-              </button>
-            </Fold>
-          );
-        })}
-        <button
-          type="button"
-          onClick={() => {
-            const id = createId();
-            const day = newDay(id);
-            set({
-              days: [
-                ...p.days,
-                {
-                  ...day,
-                  participants: dayParticipants(day, reportTeam(entry)),
-                },
-              ],
-            });
-            const first = reportTeam(entry).find((x) => x.technicianId);
-            openFold(
-              first ? ["E", id, `person-${first.technicianId}`] : ["E", id],
-            );
-          }}
-        >
-          + Dia de atendimento
-        </button>
+        <ScheduleDays
+          days={p.days}
+          entry={entry}
+          technicians={technicians}
+          showTravel={showTravel}
+          onChange={(days) => set({ days })}
+        />
       </Section>
       <Section title="F. Status final">
         <div className="br-final-questions">
-          {(["concluded", "released", "photosSent"] as const).map((k, i) => (
+          {(["concluded", "released"] as const).map((k, i) => (
             <ChoiceButtons
               key={k}
               error={fieldError(k)}
-              label={
-                [
-                  "Atendimento concluído",
-                  "Equipamento liberado",
-                  "Fotos enviadas",
-                ][i]
-              }
+              label={["Atendimento concluído", "Equipamento liberado"][i]}
               options={[
                 { value: "Sim", label: "Sim" },
                 { value: "Não", label: "Não" },
@@ -526,12 +418,27 @@ export function ReportEditor({
         <div className="br-grid">
           <ReportSignature
             label="Assinatura do técnico"
+            target={{
+              kind: "reports",
+              recordId: entry.id,
+              signerRole: "technician",
+            }}
+            defaultName={
+              technicians.find((t) => t.id === entry.technicianId)?.name ||
+              entry.technicianName
+            }
             error={fieldError("technicianSignature")}
             value={p.technicianSignature}
             onChange={(technicianSignature) => set({ technicianSignature })}
           />
           <ReportSignature
             label="Assinatura do cliente"
+            target={{
+              kind: "reports",
+              recordId: entry.id,
+              signerRole: "client",
+            }}
+            defaultName={p.requester || entry.clientName}
             error={fieldError("clientSignature")}
             value={p.clientSignature}
             onChange={(clientSignature) => set({ clientSignature })}

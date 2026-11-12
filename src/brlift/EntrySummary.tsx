@@ -1,4 +1,4 @@
-import type { Catalog, Entry, Media, Report } from "../contracts/domain";
+import type { Catalog, Day, Entry, Media, Report } from "../contracts/domain";
 import {
   dayTotals,
   dayPeriods,
@@ -8,6 +8,8 @@ import {
   hasDayData,
   reportTeam,
   participantDay,
+  reportTypeLabels,
+  signatureDateTime,
 } from "../contracts/domain";
 import { documentFields } from "../contracts/inspection-template";
 import { mediaUrl } from "./api";
@@ -36,6 +38,72 @@ function Images({ items = [] }: { items?: Media[] }) {
     </div>
   );
 }
+
+function dayLabel(day: Day) {
+  return new Date(day.date + "T12:00:00").toLocaleDateString("pt-BR", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function PeriodValues({ day }: { day: Day }) {
+  return (
+    <>
+      {(day.odometerStart || day.odometerEnd) && (
+        <Value
+          label="KM histórico do dia (inicial / final)"
+          value={`${day.odometerStart || "—"} / ${day.odometerEnd || "—"}`}
+        />
+      )}
+      {(["outbound", "work", "inbound"] as const).flatMap((kind) =>
+        dayPeriods(day)
+          .filter((period) => period.kind === kind && hasPeriodData(period))
+          .map((period, i) => (
+            <Value
+              key={period.id}
+              label={`${periodLabels[kind]} ${i + 1}`}
+              value={
+                `${period.start || "—"} às ${period.end || "—"} · pausa: ${period.pauseMinutes || "0"} min` +
+                (period.odometerStart || period.odometerEnd
+                  ? ` · KM inicial: ${period.odometerStart || "—"} · KM final: ${period.odometerEnd || "—"}`
+                  : "")
+              }
+            />
+          )),
+      )}
+    </>
+  );
+}
+
+function SignatureSummary({
+  label,
+  image,
+  fallback,
+}: {
+  label: string;
+  image?: Media;
+  fallback?: string;
+}) {
+  return (
+    <>
+      <h4>{label}</h4>
+      {image ? (
+        <>
+          <Images items={[image]} />
+          <p>
+            {[image.signerName || fallback, signatureDateTime(image.createdAt)]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </>
+      ) : (
+        <p>Não registrada.</p>
+      )}
+    </>
+  );
+}
 export function EntrySummary({
   entry,
   technicians,
@@ -44,6 +112,12 @@ export function EntrySummary({
   technicians: Catalog[];
 }) {
   const p = entry.payload;
+  const vehicle = p.vehicleSnapshot;
+  const vehicleLabel =
+    vehicle &&
+    [vehicle.plate, vehicle.model, vehicle.color, vehicle.rentalCompany]
+      .filter(Boolean)
+      .join(" · ");
   if (entry.kind === "inspections") {
     const all = p.sections.flatMap((s: any) => s.items);
     return (
@@ -55,20 +129,54 @@ export function EntrySummary({
         </p>
         <div className="br-grid">
           {documentFields
-            .filter((f) => f.key !== "000")
+            .filter((f) => !["000", "009", "011", "165"].includes(f.key))
+            .filter((f) => {
+              const separate =
+                "equipmentPlate" in p.documentFields ||
+                "equipmentFleet" in p.documentFields;
+              return f.key === "008"
+                ? !separate
+                : ["equipmentPlate", "equipmentFleet"].includes(f.key)
+                  ? separate
+                  : true;
+            })
             .map((f) => (
               <Value
                 key={f.key}
-                label={f.label}
+                label={
+                  f.key === "006"
+                    ? "Hor. Inferior"
+                    : f.key === "007"
+                      ? "KM"
+                      : f.label
+                }
                 value={p.documentFields[f.key]}
               />
             ))}
+          <Value
+            label="Hor. Superior"
+            value={p.documentFields.hourmeterUpper}
+          />
+          {vehicleLabel && <Value label="Veículo" value={vehicleLabel} />}
         </div>
         {Object.entries(p.documentImages || {})
           .filter(([k]) => ["013", "014"].includes(k))
           .map(([k, v]) => (
             <Images key={k} items={v as Media[]} />
           ))}
+        <h3>Cronograma de inspeção</h3>
+        {!(p.days || []).some(hasDayData) && (
+          <p>Nenhum dia com dados operacionais.</p>
+        )}
+        {((p.days || []) as Day[]).filter(hasDayData).map((day, i) => (
+          <div key={day.id} className="br-block">
+            <h4>
+              Dia {i + 1} — {dayLabel(day)}
+            </h4>
+            <Value label="Observações do dia" value={day.notes} />
+            <PeriodValues day={day} />
+          </div>
+        ))}
         {p.sections.map((s: any) => (
           <details key={s.id} className="br-block">
             <summary>
@@ -93,8 +201,19 @@ export function EntrySummary({
             ))}
           </details>
         ))}
-        <h3>Assinatura</h3>
-        <Images items={p.signature ? [p.signature] : []} />
+        <h3>Resultado e assinaturas</h3>
+        <Value label="Resultado da vistoria" value={p.documentFields["011"]} />
+        <Value label="Inspeção aprovada por" value={p.documentFields["165"]} />
+        <SignatureSummary
+          label="Assinatura do técnico"
+          image={p.technicianSignature}
+          fallback={entry.technicianName}
+        />
+        <SignatureSummary
+          label="Assinatura do cliente"
+          image={p.clientSignature || p.signature}
+          fallback={entry.clientName}
+        />
       </div>
     );
   }
@@ -103,11 +222,8 @@ export function EntrySummary({
     <div className="br-record-summary">
       <h3>A. Identificação</h3>
       <div className="br-grid">
-        <Value
-          label="Tipo"
-          value={r.type === "interno" ? "Interno" : "Externo"}
-        />
-        <Value label="Operador" value={r.operator} />
+        <Value label="Tipo" value={reportTypeLabels[r.type] || r.type} />
+        {vehicleLabel && <Value label="Veículo" value={vehicleLabel} />}
         <Value label="Solicitante" value={r.requester} />
         <Value label="Local" value={r.location} />
       </div>
@@ -115,28 +231,37 @@ export function EntrySummary({
       {reportTeam(entry)
         .filter((m) => m.technicianId)
         .map((m, i) => (
-          <Value
-            key={m.technicianId}
-            label={`${i + 1}. ${m.role === "auxiliary" ? "Auxiliar" : "Técnico"}`}
-            value={
-              p.teamSnapshot?.find(
-                (t: any) => t.technicianId === m.technicianId,
-              )?.name ||
-              technicians.find((t) => t.id === m.technicianId)?.name ||
-              "Não informado"
-            }
-          />
+          <div key={m.technicianId}>
+            <Value
+              label={`${i + 1}. ${m.role === "auxiliary" ? "Auxiliar" : "Técnico"}`}
+              value={
+                p.teamSnapshot?.find(
+                  (t: any) => t.technicianId === m.technicianId,
+                )?.name ||
+                technicians.find((t) => t.id === m.technicianId)?.name ||
+                "Não informado"
+              }
+            />
+            {m.charged && <Value label="Serviço cobrado" value={m.charged} />}
+          </div>
         ))}
       <h3>B. Equipamento</h3>
       <div className="br-grid">
-        {[
-          ...equipmentFields,
-          ["odometer", "KM na data"],
-          ["hourmeterLower", "Horímetro inferior na data"],
-          ["hourmeterUpper", "Horímetro superior na data"],
-        ].map(([k, label]) => (
-          <Value key={k} label={label} value={r.equipment[k]} />
-        ))}
+        {equipmentFields
+          .filter(([key]) => key !== "nominalCapacity")
+          .map(([k, label]) => (
+            <Value key={k} label={label} value={r.equipment[k]} />
+          ))}
+        <Value label="Operador" value={r.operator} />
+      </div>
+      <h4>Horímetro e quilometragem</h4>
+      <div className="br-grid">
+        <Value label="KM" value={r.equipment.odometer} />
+        <Value
+          label="Hor. Inferior"
+          value={r.equipment.hourmeterLower || r.equipment.hourmeter}
+        />
+        <Value label="Hor. Superior" value={r.equipment.hourmeterUpper} />
       </div>
       <h3>C. Motivos, serviços e pendências</h3>
       {r.reasons.map((reason, i) => (
@@ -144,7 +269,13 @@ export function EntrySummary({
           <Value label={`Motivo ${i + 1}`} value={reason.description} />
           {reason.services.map((s, j) => (
             <div key={s.id}>
-              <Value label={`Serviço ${j + 1}`} value={s.description} />
+              <Value
+                label={`Serviço realizado ${j + 1}`}
+                value={s.description}
+              />
+              {s.completed && (
+                <Value label="Serviço concluído" value={s.completed} />
+              )}
               <Value label="Observações do serviço" value={s.notes} />
               <Images items={s.photos} />
             </div>
@@ -162,9 +293,10 @@ export function EntrySummary({
           <Value label={part.code} value={part.description} />
           <Value label="Fornecedor" value={part.supplier} />
           <Value
-            label="Quantidade / classificação"
-            value={`${part.quantity} — ${part.kind === "replaced" ? "Substituída" : "Solicitada"}`}
+            label="Tipo de serviço"
+            value={part.kind === "replaced" ? "Substituída" : "Solicitada"}
           />
+          <Value label="Quantidade" value={part.quantity} />
           {!!part.codeHistory.length && (
             <Value
               label="Códigos anteriores"
@@ -186,13 +318,7 @@ export function EntrySummary({
         return (
           <div key={day.id} className="br-block">
             <h4>
-              Dia {i + 1} —{" "}
-              {new Date(day.date + "T12:00:00").toLocaleDateString("pt-BR", {
-                weekday: "long",
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-              })}
+              Dia {i + 1} — {dayLabel(day)}
             </h4>
             <Value label="Observações do dia" value={day.notes} />
             {(day.participants === undefined
@@ -252,21 +378,7 @@ export function EntrySummary({
                     }
                   />
                 )}
-                <Value
-                  label="KM inicial / final"
-                  value={`${person.day.odometerStart || "—"} / ${person.day.odometerEnd || "—"}`}
-                />
-                {(["outbound", "work", "inbound"] as const).flatMap((kind) =>
-                  dayPeriods(person.day)
-                    .filter((p) => p.kind === kind && hasPeriodData(p))
-                    .map((period, i) => (
-                      <Value
-                        key={period.id}
-                        label={`${periodLabels[kind]} ${i + 1}`}
-                        value={`${period.start || "—"} às ${period.end || "—"} · pausa: ${period.pauseMinutes || "0"} min`}
-                      />
-                    )),
-                )}
+                <PeriodValues day={person.day} />
               </div>
             ))}
             <p>{total}</p>
@@ -276,12 +388,17 @@ export function EntrySummary({
       <h3>F. Finalização</h3>
       <Value label="Atendimento concluído" value={r.concluded} />
       <Value label="Equipamento liberado" value={r.released} />
-      <Value label="Fotos enviadas" value={r.photosSent} />
       <Value label="Observações finais" value={r.observations} />
-      <h4>Assinatura do técnico</h4>
-      <Images items={r.technicianSignature ? [r.technicianSignature] : []} />
-      <h4>Assinatura do cliente</h4>
-      <Images items={r.clientSignature ? [r.clientSignature] : []} />
+      <SignatureSummary
+        label="Assinatura do técnico"
+        image={r.technicianSignature}
+        fallback={entry.technicianName}
+      />
+      <SignatureSummary
+        label="Assinatura do cliente"
+        image={r.clientSignature}
+        fallback={r.requester || entry.clientName}
+      />
     </div>
   );
 }

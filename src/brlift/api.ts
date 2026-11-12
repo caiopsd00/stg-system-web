@@ -1,4 +1,5 @@
 import type { CatalogKind, Entry, Media } from "../contracts/domain";
+import { documentFilename, type SignatureTarget } from "../contracts/domain";
 import { createId } from "./id";
 export const API = import.meta.env.VITE_API_URL || "/api";
 let databaseId = "";
@@ -33,7 +34,12 @@ export async function saveEntry(entry: Entry, mutationId = createId()) {
   return (
     await request(
       "/" + entry.kind + "/" + entry.id,
-      { ...entry, baseVersion: entry.version, mutationId },
+      {
+        ...entry,
+        date: entry.payload.formRevision === 2 ? undefined : entry.date,
+        baseVersion: entry.version,
+        mutationId,
+      },
       "PUT",
     )
   ).item as Entry;
@@ -110,10 +116,11 @@ export async function upload(file: File): Promise<Media> {
 export async function uploadData(
   dataUrl: string,
   name: string,
+  signature?: SignatureTarget,
 ): Promise<Media> {
-  return (await request("/media", { dataUrl, name })).media;
+  return (await request("/media", { dataUrl, name, signature })).media;
 }
-export async function download(entry: Entry, format = "pdf") {
+export async function download(entry: Entry, format: "pdf" | "docx" = "pdf") {
   const res = await fetch(
     API + "/" + entry.kind + "/" + entry.id + "/document/" + format,
     { credentials: "include", headers: databaseHeaders() },
@@ -122,8 +129,11 @@ export async function download(entry: Entry, format = "pdf") {
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
   a.href = url;
-  a.download =
-    "BR-LIFT-" + entry.number.replace(/[^a-z0-9_-]/gi, "-") + "." + format;
+  a.download = documentFilename(
+    entry.clientName || entry.payload.clientSnapshot?.name,
+    entry.number,
+    format,
+  );
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

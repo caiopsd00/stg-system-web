@@ -12,6 +12,7 @@ function TeamMemberSelector({
   technicians,
   reload,
   change,
+  unavailableLabel,
 }: {
   index: number;
   member: TeamMember;
@@ -19,6 +20,7 @@ function TeamMemberSelector({
   technicians: Catalog[];
   reload: () => Promise<void>;
   change: (members: TeamMember[]) => void;
+  unavailableLabel?: string;
 }) {
   const error = useFieldError(`team.${index}`);
   return (
@@ -27,6 +29,7 @@ function TeamMemberSelector({
       label={`Profissional ${index + 1}`}
       fieldError={error}
       value={member.technicianId || null}
+      unavailableLabel={unavailableLabel}
       items={technicians}
       reload={reload}
       excludeIds={team.filter((_, i) => i !== index).map((m) => m.technicianId)}
@@ -57,12 +60,17 @@ export function ReportTeamEditor({
   const path = useAccordionPath();
   const change = (members: TeamMember[]) =>
     onChange(withReportTeam(entry, members));
+  const name = (id: string) =>
+    technicians.find((t) => t.id === id)?.name ||
+    entry.payload.teamSnapshot?.find(
+      (t: { technicianId: string; name: string }) => t.technicianId === id,
+    )?.name;
   return (
     <Fold
       id="team"
       title="Equipe do atendimento"
       summary={`${team.filter((m) => m.technicianId).length} profissional(is)`}
-      status={combineProgress(team.map((m) => memberProgress(m, team)))}
+      status={combineProgress(team.map((m) => memberProgress(m, team, true)))}
     >
       {team.map((member, index) => (
         <Fold
@@ -70,13 +78,12 @@ export function ReportTeamEditor({
           id={`tech-${index}`}
           title={`Profissional ${index + 1}`}
           summary={
-            (technicians.find((t) => t.id === member.technicianId)?.name ||
-              "Selecionar profissional") +
+            (name(member.technicianId) || "Selecionar profissional") +
             (index === 0 || member.role === "technician"
               ? " — Técnico"
               : " — Auxiliar")
           }
-          status={memberProgress(member, team)}
+          status={memberProgress(member, team, true)}
         >
           <div className="br-grid">
             <TeamMemberSelector
@@ -86,6 +93,7 @@ export function ReportTeamEditor({
               technicians={technicians}
               reload={reload}
               change={change}
+              unavailableLabel={name(member.technicianId)}
             />
             <label>
               Função
@@ -110,6 +118,17 @@ export function ReportTeamEditor({
                 <option value="auxiliary">Auxiliar</option>
               </select>
             </label>
+            <ChargedField
+              index={index}
+              member={member}
+              onChange={(charged) =>
+                change(
+                  team.map((value, i) =>
+                    i === index ? { ...value, charged } : value,
+                  ),
+                )
+              }
+            />
           </div>
           {index === 0 && (
             <p className="muted">O primeiro profissional é sempre técnico.</p>
@@ -135,5 +154,39 @@ export function ReportTeamEditor({
         + Adicionar profissional
       </button>
     </Fold>
+  );
+}
+
+function ChargedField({
+  index,
+  member,
+  onChange,
+}: {
+  index: number;
+  member: TeamMember;
+  onChange: (charged: NonNullable<TeamMember["charged"]>) => void;
+}) {
+  const error = useFieldError(`team.${index}.charged`);
+  return (
+    <label>
+      Serviço cobrado?
+      <select
+        aria-label={`Serviço cobrado do profissional ${index + 1}`}
+        aria-invalid={!!error}
+        value={member.charged || ""}
+        onChange={(event) =>
+          onChange(event.target.value as NonNullable<TeamMember["charged"]>)
+        }
+      >
+        <option value="">Selecione</option>
+        <option value="Sim">Sim</option>
+        <option value="Não">Não</option>
+      </select>
+      {error && (
+        <small className="br-inline-error" role="alert">
+          {error}
+        </small>
+      )}
+    </label>
   );
 }

@@ -5,8 +5,8 @@ Este repositório contém somente o frontend. Backend e banco pertencem
 ao repositório irmão stg-inspector-api.
 
 Conferência de fluxo V0/proposta na documentação local, fora dos repositórios.
-A revisão de cronograma exige `npm run db:migrate` na API e atualização conjunta
-da API, web e mobile (contrato 4), sem apagar banco ou recriar login.
+A revisão exige as migrations 006 e 007 da API e atualização conjunta de API e web,
+sem apagar banco ou recriar login. O mobile não foi alterado nesta revisão.
 
 ## Rodar
 
@@ -20,8 +20,9 @@ da API, web e mobile (contrato 4), sem apagar banco ou recriar login.
 3. Abra http://localhost:5174 e entre com o usuário criado.
 
 Administradores usam **Cadastros** para criar, editar e desativar usuários.
-Cada novo acesso precisa de nome, CPF, e-mail, senha inicial e perfil; o
-cadastro de técnico correspondente é criado junto. Usuários não administradores
+Cada novo acesso precisa de nome, e-mail, senha inicial e perfil. **Técnico** e
+**Técnico + ADM** também exigem CPF e recebem cadastro técnico. **Administrador**
+não aparece na lista de técnicos. Usuários não administradores
 veem **Editar perfil** no mesmo lugar: podem alterar seu nome, CPF, e-mail e
 senha após confirmar a senha atual, mas não o perfil de acesso.
 Na gestão, técnicos veem somente atendimentos em que fazem parte da equipe e
@@ -50,7 +51,7 @@ Salvar o cadastro não substitui Salvar/Finalizar o atendimento.
 Em D. Peças, use **Adicionar peça ao atendimento** para incluir uma linha e
 selecione a peça do catálogo. **+ Peça / Editar peça** abrem o modal de cadastro
 (código, descrição e fornecedor). Na linha, esses dados ficam cinza e somente
-para consulta; quantidade e classificação são editáveis e pertencem ao
+para consulta; quantidade e tipo de serviço são editáveis e pertencem ao
 atendimento. Não há busca por botão nem gravação direta do cadastro na linha.
 Remover peça retira somente a linha; Excluir desativa o cadastro mediante
 confirmação, preservando o histórico. Salvar/Finalizar grava as linhas do atendimento.
@@ -85,29 +86,45 @@ ausente e somente outro profissional trabalhar. Resumo e PDF identificam os pres
 
 Cada profissional do dia contém grupos expansíveis de ida, trabalho e volta. Use
 **+ Ida**, **+ Trabalho** e **+ Volta** para criar quantos períodos precisar.
-Cada período tem início, fim e pausa opcional em minutos, descontada somente
-dele. Não há mais seletor de destino da pausa. No atendimento interno, somente
-Trabalho fica disponível. Totais, resumo e PDF incluem todos os períodos.
+Cada período tem início, fim, pausa opcional e KM inicial/final (valor ou N/A).
+Não há mais seletor de destino da pausa. Em **Interno** e **Remoto**, só Trabalho
+fica disponível. Totais, resumo e PDF incluem todos os períodos.
 
-- Operacional → Novo atendimento → crie cliente, técnico e equipamento
+- Relatório Técnico → Novo atendimento → crie cliente, técnico e equipamento
   pelos botões + do próprio formulário.
-- O número identificador fica acima das seções. Em Equipe do atendimento,
+- **O.S. OMIE** fica acima das seções. O veículo, se usado, é selecionado em
+  Identificação e cadastrado com placa e locadora, além de modelo/cor opcionais.
+  Em Equipe do atendimento,
   adicione quantos profissionais precisar: o primeiro é sempre Técnico; os
   demais podem ser Técnico ou Auxiliar. Remover uma linha não exclui o cadastro.
-  Ao remover o primeiro, o próximo assume a função de Técnico.
-- Preencha motivos/serviços/fotos, peças, dias e status finais.
-- Salve as duas assinaturas e finalize. Baixe o PDF salvo.
+  Ao remover o primeiro, o próximo assume a função de Técnico. Informe se o
+  serviço foi cobrado para cada profissional.
+- Informe um serviço por motivo e se ele foi concluído. Preencha peças, dias e
+  status finais. As fotos são anexadas no serviço, sem pergunta de confirmação.
+  O bloco **Serviço realizado** contém o subitem **Serviço realizado 1**.
+  Descrição, observações e pendências de motivos/serviços preservam a
+  capitalização digitada. Os demais campos mantêm a regra existente.
+- Capture as duas assinaturas. Cada uma mostra nome, função e horário da captura.
+  Finalize e, se desejar, baixe o PDF com cliente e O.S. no nome do arquivo.
 - Volte à gestão; filtre, abra Resumo, edite e confira o documento.
-- Inspeções → Nova inspeção → dados/equipamento → checklist A/B/C/D →
-  fotos/observações → assinatura → finalizar → PDF.
+- Inspeções → Nova inspeção → dados/equipamento → cronograma individual →
+  checklist A/B/C/D → resultado, aprovação e assinaturas → finalizar → PDF.
+  Marca, placa e frota são exibidas separadamente. Inspeções antigas que só
+  guardavam o identificador combinado continuam mostrando esse valor histórico.
+  O PDF inclui cliente/CNPJ, totais e fotos complementares, sem CPFs.
 
-São os mesmos cadastros e registros usados pelo mobile.
-O banco agora é relacional por entidade (contrato 4). Atualize API/web/mobile
-juntos. Após reset, recarregue a página e entre com o admin recriado;
+O banco é relacional por entidade (contrato 4). Registros gravados no formulário
+novo devem ser editados pelo web atualizado enquanto o mobile não for adaptado.
+Após reset, recarregue a página e entre com o admin recriado;
 o login anterior não existe mais. Inicialização/reset pertencem ao backend.
 Este frontend não executa SQL nem recebe credenciais PostgreSQL.
 O web requer conexão. O preenchimento offline é do aplicativo mobile.
 Fotos e assinaturas precisam terminar de enviar antes da finalização.
+
+No navegador do celular, CPF, O.S. e ano solicitam teclado numérico. Quantidades,
+KM, horímetros e pausas solicitam teclado numérico com separador decimal;
+datas e horários mantêm seus segmentos numéricos. Isso não muda a validação
+nem impede colar identificadores alfanuméricos que já eram aceitos.
 
     npm run build
     npm test

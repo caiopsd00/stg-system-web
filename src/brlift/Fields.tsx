@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type InputHTMLAttributes,
   type ReactNode,
 } from "react";
 import type { Media } from "../contracts/domain";
@@ -12,6 +13,11 @@ import { DateField } from "./DateField";
 import { TimeField } from "./TimeField";
 import { beginMediaActivity } from "./media-activity";
 import { Fold, useAccordion } from "./Accordion";
+import {
+  changeFormattedInput,
+  formatForLabel,
+  formatInput,
+} from "./input-format";
 export function Field({
   label,
   value,
@@ -21,6 +27,9 @@ export function Field({
   onBlur,
   readOnly = false,
   error,
+  preserveCase = false,
+  maxLength,
+  inputMode,
 }: {
   label: string;
   value: any;
@@ -30,6 +39,9 @@ export function Field({
   onBlur?: () => void;
   readOnly?: boolean;
   error?: string;
+  preserveCase?: boolean;
+  maxLength?: number;
+  inputMode?: InputHTMLAttributes<HTMLInputElement>["inputMode"];
 }) {
   if (type === "time")
     return (
@@ -67,6 +79,7 @@ export function Field({
         )}
       </div>
     );
+  const format = type === "text" ? formatForLabel(label) : undefined;
   return (
     <label>
       {label}
@@ -77,11 +90,38 @@ export function Field({
         readOnly={readOnly}
         disabled={readOnly}
         tabIndex={readOnly ? -1 : undefined}
-        value={value ?? ""}
+        value={
+          format ? formatInput(String(value ?? ""), format) : (value ?? "")
+        }
+        maxLength={maxLength}
+        inputMode={
+          inputMode ??
+          (format === "phone"
+            ? "tel"
+            : format === "cpf"
+              ? "numeric"
+              : type === "number"
+                ? "decimal"
+                : undefined)
+        }
         required={required}
         aria-invalid={!!error}
         onBlur={onBlur}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          if (format)
+            changeFormattedInput(
+              e.currentTarget,
+              (raw) => formatInput(raw, format),
+              onChange,
+            );
+          else if (type === "text" && !preserveCase)
+            changeFormattedInput(
+              e.currentTarget,
+              (raw) => raw.toUpperCase(),
+              onChange,
+            );
+          else onChange(e.currentTarget.value);
+        }}
       />
       {error && (
         <small className="br-inline-error" role="alert">
@@ -96,20 +136,31 @@ export function TextField({
   value,
   onChange,
   error,
+  preserveCase = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   error?: string;
+  preserveCase?: boolean;
 }) {
   return (
     <label>
       {label}
       <textarea
         aria-label={label}
+        autoCapitalize={preserveCase ? "none" : undefined}
         value={value || ""}
         aria-invalid={!!error}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) =>
+          preserveCase
+            ? onChange(e.currentTarget.value)
+            : changeFormattedInput(
+                e.currentTarget,
+                (raw) => raw.toUpperCase(),
+                onChange,
+              )
+        }
       />
       {error && (
         <small className="br-inline-error" role="alert">

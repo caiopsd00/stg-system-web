@@ -1,11 +1,18 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { request } from "./api";
+import {
+  isTechnician,
+  userRoleLabels,
+  type UserRole,
+} from "../contracts/domain";
+import { changeFormattedInput, formatInput } from "./input-format";
 
 type ManagedUser = {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "technician";
+  role: UserRole;
+  cpf?: string;
   active: boolean;
   technician: { id: string; cpf: string; active: boolean } | null;
 };
@@ -31,7 +38,7 @@ export function UserRegistration({
   const [cpf, setCpf] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"technician" | "admin">("technician");
+  const [role, setRole] = useState<UserRole>("technician");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pageError, setPageError] = useState("");
@@ -65,7 +72,7 @@ export function UserRegistration({
   function openEdit(user: ManagedUser) {
     setEditing(user);
     setName(user.name);
-    setCpf(user.technician?.cpf ?? "");
+    setCpf(formatInput(user.technician?.cpf || user.cpf || "", "cpf"));
     setEmail(user.email);
     setPassword("");
     setRole(user.role);
@@ -85,7 +92,7 @@ export function UserRegistration({
     try {
       const data = {
         name,
-        cpf,
+        cpf: isTechnician(role) ? cpf : "",
         email,
         ...(password ? { password } : {}),
         role,
@@ -95,10 +102,18 @@ export function UserRegistration({
           user: { id: string; name: string; email: string; role: string };
         }>(`/users/${editing.id}`, data, "PUT");
         onUserUpdated(result.user);
-        setNotice("Usuário e cadastro técnico atualizados.");
+        setNotice(
+          isTechnician(role)
+            ? "Usuário e cadastro técnico atualizados."
+            : "Administrador atualizado.",
+        );
       } else {
         await request("/users", { ...data, password });
-        setNotice("Usuário criado e cadastrado como técnico.");
+        setNotice(
+          isTechnician(role)
+            ? "Usuário criado com cadastro técnico."
+            : "Administrador criado.",
+        );
         await onCreated();
       }
       await refreshUsers();
@@ -204,12 +219,10 @@ export function UserRegistration({
                   >
                     {item.active ? "Ativo" : "Desativado"}
                   </span>
-                  <span>
-                    {item.role === "admin" ? "Administrador" : "Técnico"}
-                  </span>
+                  <span>{userRoleLabels[item.role]}</span>
                   <span>
                     {item.technician
-                      ? `Cadastro técnico · CPF ${item.technician.cpf}`
+                      ? `Cadastro técnico · CPF ${formatInput(item.technician.cpf, "cpf")}`
                       : "Sem cadastro técnico"}
                   </span>
                 </div>
@@ -274,8 +287,8 @@ export function UserRegistration({
                 </h2>
                 <p>
                   {editing
-                    ? "Nome e CPF também atualizam o cadastro técnico. Deixe a senha vazia para mantê-la."
-                    : "A conta também será cadastrada como técnico usando o CPF informado."}
+                    ? "Deixe a senha vazia para mantê-la. Somente perfis técnicos exigem CPF."
+                    : "Administrador não aparece na lista de técnicos. Use Técnico + ADM para combinar as funções."}
                 </p>
               </div>
               <button
@@ -298,21 +311,35 @@ export function UserRegistration({
                     maxLength={300}
                     required
                     value={name}
-                    onChange={(event) => setName(event.target.value)}
+                    onChange={(event) =>
+                      changeFormattedInput(
+                        event.currentTarget,
+                        (raw) => raw.toUpperCase(),
+                        setName,
+                      )
+                    }
                   />
                 </label>
-                <label>
-                  CPF
-                  <input
-                    autoComplete="off"
-                    inputMode="numeric"
-                    maxLength={14}
-                    placeholder="000.000.000-00"
-                    required
-                    value={cpf}
-                    onChange={(event) => setCpf(event.target.value)}
-                  />
-                </label>
+                {isTechnician(role) && (
+                  <label>
+                    CPF
+                    <input
+                      autoComplete="off"
+                      inputMode="numeric"
+                      maxLength={14}
+                      placeholder="000.000.000-00"
+                      required
+                      value={cpf}
+                      onChange={(event) =>
+                        changeFormattedInput(
+                          event.currentTarget,
+                          (raw) => formatInput(raw, "cpf"),
+                          setCpf,
+                        )
+                      }
+                    />
+                  </label>
+                )}
                 <label>
                   E-mail de acesso
                   <input
@@ -327,6 +354,8 @@ export function UserRegistration({
                 <label>
                   {editing ? "Nova senha (opcional)" : "Senha inicial"}
                   <input
+                    aria-label={editing ? "Nova senha (opcional)" : "Senha inicial"}
+                    aria-describedby="br-user-password-hint"
                     autoComplete="new-password"
                     minLength={password ? 10 : undefined}
                     maxLength={1024}
@@ -335,7 +364,7 @@ export function UserRegistration({
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                   />
-                  <small>
+                  <small id="br-user-password-hint">
                     {editing
                       ? "Deixe em branco para não alterar."
                       : "Mínimo de 10 caracteres."}
@@ -344,13 +373,15 @@ export function UserRegistration({
                 <label>
                   Perfil de acesso
                   <select
+                    aria-label="Perfil de acesso"
                     value={role}
                     onChange={(event) =>
-                      setRole(event.target.value as "technician" | "admin")
+                      setRole(event.target.value as UserRole)
                     }
                   >
                     <option value="technician">Técnico</option>
                     <option value="admin">Administrador</option>
+                    <option value="technician_admin">Técnico + ADM</option>
                   </select>
                 </label>
               </div>
@@ -368,7 +399,7 @@ export function UserRegistration({
                     ? "Salvando…"
                     : editing
                       ? "Salvar alterações"
-                      : "Criar usuário e técnico"}
+                      : "Criar usuário"}
                 </button>
               </div>
             </form>
