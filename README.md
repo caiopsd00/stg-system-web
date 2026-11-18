@@ -4,6 +4,18 @@ Frontend React/TypeScript de atendimento técnico, inspeções e gestão.
 Este repositório contém somente o frontend. Backend e banco pertencem
 ao repositório irmão stg-inspector-api.
 
+## Identidade visual
+
+Arte vetorial original BR LIFT em `public/brand`: verde-lima `#CAE211`, grafite
+`#2A2A2E`, versões claras/escuras e margens de proteção. O cabeçalho, login e
+carregamento usam a mesma marca; favicon, ícones de atalho e imagem de
+compartilhamento também são locais. O manifesto fornece nome/ícone para atalhos;
+não adiciona cache offline nem altera autenticação.
+
+Para conferir: `npm run dev`, abrir o login em desktop/celular e entrar para
+conferir o cabeçalho. Atualize a aba sem cache se o navegador mantiver o ícone
+anterior. Esta alteração de marca não exige migrations.
+
 Conferência de fluxo V0/proposta na documentação local, fora dos repositórios.
 A revisão exige as migrations 006 e 007 da API e atualização conjunta de API e web,
 sem apagar banco ou recriar login. O mobile não foi alterado nesta revisão.

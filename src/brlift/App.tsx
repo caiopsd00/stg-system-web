@@ -28,6 +28,7 @@ import { finalizationIssues } from "./form-validation";
 import { FormErrors } from "./FormErrors";
 import { openFold } from "./Accordion";
 import { createId } from "./id";
+import { Brand } from "./Brand";
 import "./style.css";
 const emptyCatalog = (): Record<CatalogKind, Catalog[]> => ({
   clients: [],
@@ -361,10 +362,39 @@ export default function App() {
       setBusy(false);
     }
   }
-  if (boot) return <main className="br-login">Carregando BR LIFT...</main>;
+  if (boot)
+    return (
+      <main className="br-boot">
+        <Brand large />
+        <p role="status">Carregando sua operação…</p>
+      </main>
+    );
   if (!user)
     return (
       <main className="br-login">
+        <section
+          className="br-login-intro"
+          aria-label="BR LIFT — Serviços técnicos"
+        >
+          <Brand large />
+          <div>
+            <span className="br-brand-eyebrow">SERVIÇOS TÉCNICOS</span>
+            <h2>
+              Precisão em campo.
+              <br />
+              Controle na gestão.
+            </h2>
+            <p>
+              Guindastes &amp; movimentação.
+              <br />A sua operação, conectada de ponta a ponta.
+            </p>
+          </div>
+          <div className="br-brand-disciplines">
+            <span>Atendimento técnico</span>
+            <span>Inspeções</span>
+            <span>Gestão</span>
+          </div>
+        </section>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -382,8 +412,9 @@ export default function App() {
             }
           }}
         >
-          <h1>BR LIFT</h1>
-          <p>Atendimento técnico · Inspeções · Gestão</p>
+          <span className="br-brand-eyebrow">PLATAFORMA BR LIFT</span>
+          <h1>Acesse sua operação</h1>
+          <p>Entre com os dados da sua conta.</p>
           <Field
             label="E-mail"
             type="email"
@@ -400,17 +431,18 @@ export default function App() {
           <button className="primary" disabled={busy}>
             Entrar
           </button>
+          <p className="br-login-note">Acesso exclusivo à equipe autorizada.</p>
         </form>
+        <footer className="br-login-footer">
+          BR LIFT <span>Serviços técnicos · Guindastes &amp; movimentação</span>
+        </footer>
       </main>
     );
   return (
     <div className="br-app">
       <header className="br-header">
-        <div>
-          <strong>BR LIFT</strong>
-          <small>Operação e gestão</small>
-        </div>
-        <nav>
+        <Brand />
+        <nav aria-label="Navegação principal">
           <button
             aria-pressed={!accountPage && kind === "reports"}
             onClick={() => navigate("reports")}
