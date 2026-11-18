@@ -154,6 +154,17 @@ Dockerfile gera arquivos estáticos servidos por Nginx. O compose de produção
 na API publica web e /api sob o mesmo domínio HTTPS via Caddy.
 Não colocar senha, chave privada ou configuração PostgreSQL em VITE_*.
 
+O build Docker normaliza as permissões **somente dos arquivos públicos** para
+leitura pelo Nginx, inclusive quando o checkout é feito com `umask 077` pelo
+deploy. Não é necessário enviar imagens manualmente nem alterar permissões de
+`.env`, credenciais ou do servidor.
+
+Com Docker iniciado, `npm run test:production` cria um contexto temporário com
+arquivos 0600 e diretórios 0700, constrói a imagem e verifica HTML, JavaScript e
+todos os arquivos de `public` por HTTP, comparando também seu conteúdo e a
+permissão de leitura do usuário Nginx. O teste usa apenas uma porta local e remove
+seu container, imagem e contexto ao terminar; não acessa a API nem o banco.
+
 A marca textual é BR LIFT. A referência funcional/visual é o STG original,
 mas o escopo válido é a proposta revisada: Operacional, Inspeções e sua gestão,
 sem financeiro/diretoria/IG.
