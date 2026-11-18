@@ -1,3 +1,4 @@
+import { canAdminister } from "../contracts/domain";
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { request } from "./api";
 import {
@@ -11,6 +12,7 @@ type ManagedUser = {
   id: string;
   name: string;
   email: string;
+  hasAccess?: boolean;
   role: UserRole;
   cpf?: string;
   active: boolean;
@@ -73,7 +75,7 @@ export function UserRegistration({
     setEditing(user);
     setName(user.name);
     setCpf(formatInput(user.technician?.cpf || user.cpf || "", "cpf"));
-    setEmail(user.email);
+    setEmail(user.email || "");
     setPassword("");
     setRole(user.role);
     setError("");
@@ -210,7 +212,9 @@ export function UserRegistration({
                         <small className="br-user-you">Você</small>
                       )}
                     </strong>
-                    <span>{item.email}</span>
+                    <span>
+                      {item.email || "Sem acesso ao sistema — cadastro básico"}
+                    </span>
                   </div>
                 </div>
                 <div className="br-user-card-meta">
@@ -345,7 +349,9 @@ export function UserRegistration({
                   <input
                     autoComplete="email"
                     maxLength={254}
-                    required
+                    required={
+                      !editing || !!editing.hasAccess || canAdminister(role)
+                    }
                     type="email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
@@ -354,12 +360,16 @@ export function UserRegistration({
                 <label>
                   {editing ? "Nova senha (opcional)" : "Senha inicial"}
                   <input
-                    aria-label={editing ? "Nova senha (opcional)" : "Senha inicial"}
+                    aria-label={
+                      editing ? "Nova senha (opcional)" : "Senha inicial"
+                    }
                     aria-describedby="br-user-password-hint"
                     autoComplete="new-password"
                     minLength={password ? 10 : undefined}
                     maxLength={1024}
-                    required={!editing}
+                    required={
+                      !editing || (!!email && editing.hasAccess === false)
+                    }
                     type="password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}

@@ -10,6 +10,7 @@ import {
   participantDay,
   reportTypeLabels,
   signatureDateTime,
+  periodSummary,
 } from "../contracts/domain";
 import { documentFields } from "../contracts/inspection-template";
 import { mediaUrl } from "./api";
@@ -65,7 +66,7 @@ function PeriodValues({ day }: { day: Day }) {
               key={period.id}
               label={`${periodLabels[kind]} ${i + 1}`}
               value={
-                `${period.start || "—"} às ${period.end || "—"} · pausa: ${period.pauseMinutes || "0"} min` +
+                `${period.start || "—"} às ${period.end || "—"} · pausa: ${period.pauseMinutes || "0"} min · Total: ${periodSummary(period)}` +
                 (period.odometerStart || period.odometerEnd
                   ? ` · KM inicial: ${period.odometerStart || "—"} · KM final: ${period.odometerEnd || "—"}`
                   : "")
@@ -263,7 +264,7 @@ export function EntrySummary({
         />
         <Value label="Hor. Superior" value={r.equipment.hourmeterUpper} />
       </div>
-      <h3>C. Motivos, serviços e pendências</h3>
+      <h3>C. Descrição do serviço</h3>
       {r.reasons.map((reason, i) => (
         <div key={reason.id} className="br-block">
           <Value label={`Motivo ${i + 1}`} value={reason.description} />
@@ -273,17 +274,25 @@ export function EntrySummary({
                 label={`Serviço realizado ${j + 1}`}
                 value={s.description}
               />
+              <Value label="Observações do serviço" value={s.notes} />
+              {j === 0 && (
+                <Value
+                  label="Pendências / próximos passos"
+                  value={reason.pending || "Nenhuma informada"}
+                />
+              )}
               {s.completed && (
                 <Value label="Serviço concluído" value={s.completed} />
               )}
-              <Value label="Observações do serviço" value={s.notes} />
               <Images items={s.photos} />
             </div>
           ))}
-          <Value
-            label="Pendências / próximos passos"
-            value={reason.pending || "Nenhuma informada"}
-          />
+          {!reason.services.length && (
+            <Value
+              label="Pendências / próximos passos"
+              value={reason.pending || "Nenhuma informada"}
+            />
+          )}
         </div>
       ))}
       <h3>D. Peças utilizadas / solicitadas</h3>
@@ -293,8 +302,8 @@ export function EntrySummary({
           <Value label={part.code} value={part.description} />
           <Value label="Fornecedor" value={part.supplier} />
           <Value
-            label="Tipo de serviço"
-            value={part.kind === "replaced" ? "Substituída" : "Solicitada"}
+            label="Tipo de aplicação"
+            value={part.kind === "replaced" ? "Substituição" : "Solicitação"}
           />
           <Value label="Quantidade" value={part.quantity} />
           {!!part.codeHistory.length && (
@@ -390,7 +399,11 @@ export function EntrySummary({
       <Value label="Equipamento liberado" value={r.released} />
       <Value label="Observações finais" value={r.observations} />
       <SignatureSummary
-        label="Assinatura do técnico"
+        label={
+          r.primaryTechnicianRole === "auxiliary"
+            ? "Assinatura do auxiliar"
+            : "Assinatura do técnico"
+        }
         image={r.technicianSignature}
         fallback={entry.technicianName}
       />

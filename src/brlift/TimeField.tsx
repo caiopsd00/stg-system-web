@@ -130,7 +130,7 @@ export function TimeField({
               aria-label={`${label}: ${index === 0 ? "hora" : "minuto"}`}
               aria-controls={pickerId}
               aria-expanded={open}
-              aria-invalid={invalid}
+              aria-invalid={invalid || !!error}
               required={required}
               placeholder={index === 0 ? "hh" : "mm"}
               maxLength={2}

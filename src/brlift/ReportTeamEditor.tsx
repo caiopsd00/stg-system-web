@@ -79,9 +79,7 @@ export function ReportTeamEditor({
           title={`Profissional ${index + 1}`}
           summary={
             (name(member.technicianId) || "Selecionar profissional") +
-            (index === 0 || member.role === "technician"
-              ? " — Técnico"
-              : " — Auxiliar")
+            (member.role === "technician" ? " — Técnico" : " — Auxiliar")
           }
           status={memberProgress(member, team, true)}
         >
@@ -100,7 +98,6 @@ export function ReportTeamEditor({
               <select
                 aria-label={`Função do profissional ${index + 1}`}
                 value={member.role}
-                disabled={index === 0}
                 onChange={(event) =>
                   change(
                     team.map((m, i) =>
@@ -130,9 +127,6 @@ export function ReportTeamEditor({
               }
             />
           </div>
-          {index === 0 && (
-            <p className="muted">O primeiro profissional é sempre técnico.</p>
-          )}
           {team.length > 1 && (
             <button
               type="button"

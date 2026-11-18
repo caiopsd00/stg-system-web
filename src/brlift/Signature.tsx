@@ -17,6 +17,7 @@ export function Signature({
   error,
   target,
   defaultName = "",
+  signerTitle,
 }: {
   label: string;
   value?: Media;
@@ -24,6 +25,7 @@ export function Signature({
   error?: string;
   target: Omit<SignatureTarget, "signerName">;
   defaultName?: string;
+  signerTitle?: string;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -47,9 +49,10 @@ export function Signature({
             {value.signerName || defaultName || "Nome não registrado"}
           </strong>
           {" · "}
-          {target.signerRole === "technician"
-            ? "Técnico"
-            : "Representante do cliente"}
+          {signerTitle ||
+            (target.signerRole === "technician"
+              ? "Técnico"
+              : "Representante do cliente")}
           {value.createdAt && <> · {signatureDateTime(value.createdAt)}</>}
         </p>
       )}

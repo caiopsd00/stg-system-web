@@ -87,6 +87,9 @@ ausente e somente outro profissional trabalhar. Resumo e PDF identificam os pres
 Cada profissional do dia contém grupos expansíveis de ida, trabalho e volta. Use
 **+ Ida**, **+ Trabalho** e **+ Volta** para criar quantos períodos precisar.
 Cada período tem início, fim, pausa opcional e KM inicial/final (valor ou N/A).
+Os horários ficam dentro da mesma data: termine até 23:59 e adicione outro dia
+para continuar a partir de 00:00. O fim anterior ao início é inválido e não soma
+horas como se o período atravessasse a meia-noite.
 Não há mais seletor de destino da pausa. Em **Interno** e **Remoto**, só Trabalho
 fica disponível. Totais, resumo e PDF incluem todos os períodos.
 
@@ -95,9 +98,9 @@ fica disponível. Totais, resumo e PDF incluem todos os períodos.
 - **O.S. OMIE** fica acima das seções. O veículo, se usado, é selecionado em
   Identificação e cadastrado com placa e locadora, além de modelo/cor opcionais.
   Em Equipe do atendimento,
-  adicione quantos profissionais precisar: o primeiro é sempre Técnico; os
-  demais podem ser Técnico ou Auxiliar. Remover uma linha não exclui o cadastro.
-  Ao remover o primeiro, o próximo assume a função de Técnico. Informe se o
+  adicione quantos profissionais precisar: todos podem ser Técnico ou Auxiliar,
+  inclusive o primeiro. A equipe pode ter somente auxiliares. Remover uma linha
+  não exclui o cadastro nem muda a função dos profissionais restantes. Informe se o
   serviço foi cobrado para cada profissional.
 - Informe um serviço por motivo e se ele foi concluído. Preencha peças, dias e
   status finais. As fotos são anexadas no serviço, sem pergunta de confirmação.

@@ -736,6 +736,9 @@ td strong {
   justify-content: flex-end;
   margin-top: 24px;
 }
+.br-photos {
+  margin-block: 12px;
+}
 .br-thumbs {
   display: flex;
   gap: 12px;
@@ -760,7 +763,7 @@ td strong {
 .br-photo-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
 }
 .br-photo-action {
   position: relative;
@@ -1460,4 +1463,59 @@ input[readonly] {
     grid-row: 1;
     text-align: left;
   }
+}
+.br-compact-completed,
+.br-compact-completed + .br-photos .br-photo-action {
+  width: 140px;
+  max-width: 100%;
+}
+.br-compact-completed {
+  margin: 12px 0;
+}
+
+.br-catalog-field {
+  position: relative;
+  min-width: 0;
+}
+.br-catalog-input {
+  position: relative;
+}
+.br-catalog-input input {
+  width: 100%;
+  padding-right: 35px;
+}
+.br-catalog-input > span {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.br-catalog-options {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  max-height: min(280px, 40vh);
+  overflow: auto;
+  z-index: 40;
+  background: #202226;
+  border: 1px solid #717528;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px #0009;
+}
+.br-catalog-options [role="option"],
+.br-catalog-options [role="status"] {
+  padding: 12px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.br-catalog-options [role="option"].active {
+  background: #d9f121;
+  color: #17191a;
+}
+.br-catalog-options [aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
 }

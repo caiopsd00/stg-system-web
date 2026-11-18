@@ -18,6 +18,76 @@ const base = (kind, payload) => ({
   payload,
 });
 
+test("fim anterior ao início aponta o campo final e limpa o erro ao corrigir, nos dois formulários", () => {
+  for (const kind of ["reports", "inspections"]) {
+    const period = {
+      id: "work",
+      kind: "work",
+      start: "03:30",
+      end: "01:00",
+      pauseMinutes: "",
+      odometerStart: "N/A",
+      odometerEnd: "N/A",
+    };
+    const day = { ...newDay("d"), periods: [period] };
+    const payload =
+      kind === "reports"
+        ? { ...newReport(), days: [day] }
+        : { documentFields: {}, sections: [], documentImages: {}, days: [day] };
+    const entry = base(kind, payload);
+    const errors = () =>
+      finalizationIssues(entry).filter((e) => e.key === "period.d.work.end");
+    assert.match(errors()[0].message, /23:59/);
+    period.end = "23:59";
+    assert.deepEqual(errors(), []);
+    assert.ok(!finalizationIssues(entry).some((e) => e.key === "day.d.totals"));
+  }
+});
+
+test("continuidade de KM/horários aponta cada campo e limpa o erro após corrigir, nos dois formulários", () => {
+  for (const kind of ["reports", "inspections"]) {
+    const day = {
+      ...newDay("d"),
+      periods: [
+        {
+          id: "ida",
+          kind: "outbound",
+          start: "07:00",
+          end: "08:00",
+          pauseMinutes: "",
+          odometerStart: "0",
+          odometerEnd: "100",
+        },
+        {
+          id: "trabalho",
+          kind: "work",
+          start: "07:59",
+          end: "09:00",
+          pauseMinutes: "",
+          odometerStart: "5",
+          odometerEnd: "110",
+        },
+      ],
+    };
+    const entry = base(
+      kind,
+      kind === "reports"
+        ? { ...newReport(), formRevision: 2, days: [day] }
+        : { documentFields: {}, sections: [], documentImages: {}, days: [day] },
+    );
+    const errors = () =>
+      finalizationIssues(entry).filter((e) =>
+        e.key.startsWith("period.d.trabalho."),
+      );
+    assert.ok(errors().some((e) => e.key.endsWith(".start")));
+    assert.ok(errors().some((e) => e.key.endsWith(".odometerStart")));
+    assert.ok(errors().every((e) => e.path.at(-1) === "trabalho"));
+    day.periods[1].start = "08:00";
+    day.periods[1].odometerStart = "100";
+    assert.deepEqual(errors(), []);
+  }
+});
+
 test("atendimento abre todos os caminhos inválidos e limpa cada campo corrigido", () => {
   const entry = base("reports", newReport());
   entry.number = "";
@@ -106,7 +176,7 @@ test("peça, profissional e cronograma recebem caminhos internos de erro", () =>
   ]);
 });
 
-test("serviço pendente abre o grupo e o subitem numerado; corrigir limpa seus erros", () => {
+test("serviço pendente abre diretamente o motivo; corrigir limpa seus erros", () => {
   const entry = base("reports", newReport());
   entry.payload.formRevision = 2;
   entry.payload.reasons = [
@@ -129,8 +199,7 @@ test("serviço pendente abre o grupo e o subitem numerado; corrigir limpa seus e
     issue.key.startsWith("service."),
   );
   assert.equal(errors.length, 2);
-  for (const error of errors)
-    assert.deepEqual(error.path, ["C", "reason", "services-reason", "service"]);
+  for (const error of errors) assert.deepEqual(error.path, ["C", "reason"]);
   Object.assign(entry.payload.reasons[0].services[0], {
     description: "Serviço ajustado",
     completed: "Sim",

@@ -27,7 +27,6 @@ import {
   reportProgress,
   reportPendingPaths,
   reasonProgress,
-  serviceProgress,
   partProgress,
 } from "./report-progress";
 export function ReportEditor({
@@ -145,7 +144,7 @@ export function ReportEditor({
         items={equipment}
         reload={reloadCatalog}
       />
-      <Section title="C. Motivos, serviços e pendências">
+      <Section title="C. Descrição do serviço">
         {p.reasons.map((r, i) => {
           const service = singleService(r);
           const change = (patch: Partial<Service>) =>
@@ -159,68 +158,61 @@ export function ReportEditor({
               status={reasonProgress(r, true)}
             >
               <TextField
-                label="Descrição do motivo"
+                label="Serviço realizado"
                 preserveCase
-                error={fieldError("reason." + r.id)}
-                value={r.description}
-                onChange={(description) => reason(i, { description })}
+                error={
+                  fieldError("service." + service.id) ||
+                  fieldError("reason." + r.id)
+                }
+                value={service.description}
+                onChange={(description) =>
+                  reason(i, {
+                    description:
+                      !r.description || r.description === service.description
+                        ? description
+                        : r.description,
+                    services: [{ ...service, description }],
+                  })
+                }
               />
-              <Fold
-                id={`services-${r.id}`}
-                title="Serviço realizado"
-                summary={service.description || "Novo serviço"}
-                status={serviceProgress(service, true)}
-              >
-                <Fold
-                  id={service.id}
-                  title="Serviço realizado 1"
-                  summary={service.description || "Novo serviço"}
-                  status={serviceProgress(service, true)}
-                >
-                  <TextField
-                    label="Serviço realizado"
-                    preserveCase
-                    error={fieldError("service." + service.id)}
-                    value={service.description}
-                    onChange={(description) => change({ description })}
-                  />
-                  <label>
-                    Serviço concluído?
-                    <select
-                      aria-label="Serviço concluído?"
-                      value={service.completed || ""}
-                      aria-invalid={
-                        !!fieldError("service." + service.id + ".completed")
-                      }
-                      onChange={(event) =>
-                        change({ completed: event.target.value as YesNo })
-                      }
-                    >
-                      <option value="">Selecione</option>
-                      <option value="Sim">Sim</option>
-                      <option value="Não">Não</option>
-                    </select>
-                    <InlineError
-                      field={"service." + service.id + ".completed"}
-                    />
-                  </label>
-                  <TextField
-                    label="Observações do serviço"
-                    preserveCase
-                    value={service.notes}
-                    onChange={(notes) => change({ notes })}
-                  />
-                  <Photos
-                    value={service.photos}
-                    onChange={(photos) => change({ photos })}
-                  />
-                </Fold>
-              </Fold>
+              {r.description && r.description !== service.description && (
+                <p className="muted">
+                  Motivo registrado anteriormente: {r.description}
+                </p>
+              )}
+              <TextField
+                label="Observações do serviço"
+                preserveCase
+                value={service.notes}
+                onChange={(notes) => change({ notes })}
+              />
               <TextField
                 label="Pendências / próximos passos deste motivo"
                 preserveCase
                 value={r.pending}
                 onChange={(pending) => reason(i, { pending })}
+              />
+              <label className="br-compact-completed">
+                Serviço concluído?
+                <select
+                  aria-label="Serviço concluído?"
+                  value={service.completed || ""}
+                  aria-invalid={
+                    !!fieldError("service." + service.id + ".completed")
+                  }
+                  onChange={(event) =>
+                    change({ completed: event.target.value as YesNo })
+                  }
+                >
+                  <option value="">Selecione</option>
+                  <option value="Sim">Sim</option>
+                  <option value="Não">Não</option>
+                </select>
+                <InlineError field={"service." + service.id + ".completed"} />
+              </label>
+              <Photos
+                value={service.photos}
+                onChange={(photos) => change({ photos })}
               />
               <button
                 type="button"
@@ -320,17 +312,17 @@ export function ReportEditor({
                 onChange={(quantity) => part(i, { quantity: Number(quantity) })}
               />
               <label>
-                Tipo de serviço
+                Tipo de aplicação
                 <select
                   value={v.kind}
                   aria-invalid={!!fieldError(`part.${v.id}.kind`)}
-                  aria-label="Tipo de serviço"
+                  aria-label="Tipo de aplicação"
                   onChange={(e) =>
                     part(i, { kind: e.target.value as Part["kind"] })
                   }
                 >
-                  <option value="requested">Solicitada</option>
-                  <option value="replaced">Substituída</option>
+                  <option value="requested">Solicitação</option>
+                  <option value="replaced">Substituição</option>
                 </select>
                 <InlineError field={`part.${v.id}.kind`} />
               </label>
@@ -417,7 +409,14 @@ export function ReportEditor({
         />
         <div className="br-grid">
           <ReportSignature
-            label="Assinatura do técnico"
+            label={
+              p.primaryTechnicianRole === "auxiliary"
+                ? "Assinatura do auxiliar"
+                : "Assinatura do técnico"
+            }
+            signerTitle={
+              p.primaryTechnicianRole === "auxiliary" ? "Auxiliar" : "Técnico"
+            }
             target={{
               kind: "reports",
               recordId: entry.id,

@@ -7,6 +7,7 @@ import {
   serviceProgress,
   partProgress,
   dayProgress,
+  periodProgress,
   combineProgress,
   memberProgress,
 } from "../src/brlift/report-progress.ts";
@@ -60,19 +61,9 @@ test("entrada de seção direciona ao descendente pendente sem saltar dados prin
       ],
     },
   ];
-  assert.deepEqual(reportPendingPaths(e).C, ["C", "r", "services-r", "s2"]);
-  assert.deepEqual(reportPendingPaths(e)["C/r"], [
-    "C",
-    "r",
-    "services-r",
-    "s2",
-  ]);
-  assert.deepEqual(reportPendingPaths(e)["C/r/services-r"], [
-    "C",
-    "r",
-    "services-r",
-    "s2",
-  ]);
+  assert.deepEqual(reportPendingPaths(e).C, ["C", "r"]);
+  assert.deepEqual(reportPendingPaths(e)["C/r"], ["C", "r"]);
+  assert.equal(reportPendingPaths(e)["C/r/services-r"], undefined);
   e.payload.parts = [{ id: "p", code: "X", quantity: 0, kind: "requested" }];
   assert.deepEqual(reportPendingPaths(e).D, ["D", "p"]);
   e.payload.days = [{ ...day(), id: "d" }];
@@ -218,7 +209,7 @@ test("motivos e serviços exigem apenas os dados obrigatórios atuais", () => {
     "pending",
   );
 });
-test("peças validam quantidade e dias validam horários, virada de dia e pausa", () => {
+test("peças validam quantidade e dias rejeitam virada de dia, mantendo pausas válidas", () => {
   assert.equal(
     partProgress({
       code: "",
@@ -238,9 +229,16 @@ test("peças validam quantidade e dias validam horários, virada de dia e pausa"
   d.work.start = "22:00";
   assert.equal(dayProgress(d).state, "pending");
   d.work.end = "02:00";
-  d.pause.minutes = "240";
+  assert.equal(dayProgress(d).state, "invalid");
+  assert.equal(
+    periodProgress({ ...d.work, id: "work", kind: "work", pauseMinutes: "" })
+      .state,
+    "invalid",
+  );
+  d.work.end = "23:59";
+  d.pause.minutes = "119";
   assert.equal(dayProgress(d).state, "complete");
-  d.pause.minutes = "241";
+  d.pause.minutes = "120";
   assert.equal(dayProgress(d).state, "invalid");
   d.pause.minutes = "0";
   d.odometerStart = "10";

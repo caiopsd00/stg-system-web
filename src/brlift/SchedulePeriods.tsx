@@ -1,6 +1,9 @@
 import {
   dayPeriods,
   periodLabels,
+  periodSummary,
+  periodContinuityIssues,
+  orderedPeriods,
   type Day,
   type DayPeriod,
 } from "../contracts/domain";
@@ -32,9 +35,21 @@ export function SchedulePeriods({
   const periods = dayPeriods(day),
     accordion = useAccordion()!,
     path = useAccordionPath();
+  const continuity = periodContinuityIssues(periods);
+  const progress = (p: DayPeriod) => {
+    const issue = continuity.find((i) => i.id === p.id);
+    return issue
+      ? { state: "invalid" as const, detail: issue.message }
+      : periodProgress(p, !sharedTravel);
+  };
   const names = { outbound: "Ida", work: "Trabalho", inbound: "Volta" };
   return (
     <div>
+      <p className="muted">
+        Cada período deve terminar no mesmo dia, até 23:59. Para continuar após
+        meia-noite, adicione outro dia ao cronograma e informe o horário a
+        partir de 00:00.
+      </p>
       {(["outbound", "work", "inbound"] as const)
         .filter((kind) => showTravel || kind === "work")
         .map((kind) => {
@@ -54,7 +69,7 @@ export function SchedulePeriods({
                     : items.length + " período(s)"
               }
               status={combineProgress(
-                items.map((p) => periodProgress(p, !sharedTravel)),
+                items.map((p) => progress(p)),
                 "Nenhum período informado (opcional)",
               )}
             >
@@ -73,14 +88,15 @@ export function SchedulePeriods({
                     key={period.id}
                     id={period.id}
                     title={names[kind] + " " + (index + 1)}
-                    status={periodProgress(period, !sharedTravel)}
+                    status={progress(period)}
                     summary={
                       (period.start || "—") +
                       " às " +
                       (period.end || "—") +
                       " · pausa: " +
                       (period.pauseMinutes || "0") +
-                      " min"
+                      " min · " +
+                      periodSummary(period)
                     }
                   >
                     {!sharedTiming && (
@@ -89,14 +105,24 @@ export function SchedulePeriods({
                           label="Início"
                           type="time"
                           value={period.start}
-                          error={fieldError(key + ".start")}
+                          error={
+                            fieldError(key + ".start") ||
+                            continuity.find(
+                              (i) => i.id === period.id && i.field === "start",
+                            )?.message
+                          }
                           onChange={(start) => change({ start })}
                         />
                         <Field
                           label="Fim"
                           type="time"
                           value={period.end}
-                          error={fieldError(key + ".end")}
+                          error={
+                            fieldError(key + ".end") ||
+                            continuity.find(
+                              (i) => i.id === period.id && i.field === "end",
+                            )?.message
+                          }
                           onChange={(end) => change({ end })}
                         />
                         <Field
@@ -119,7 +145,14 @@ export function SchedulePeriods({
                           label="KM inicial"
                           numeric
                           value={period.odometerStart}
-                          error={fieldError(key + ".odometerStart")}
+                          error={
+                            fieldError(key + ".odometerStart") ||
+                            continuity.find(
+                              (i) =>
+                                i.id === period.id &&
+                                i.field === "odometerStart",
+                            )?.message
+                          }
                           onChange={(odometerStart) =>
                             change({ odometerStart })
                           }
@@ -128,11 +161,20 @@ export function SchedulePeriods({
                           label="KM final"
                           numeric
                           value={period.odometerEnd}
-                          error={fieldError(key + ".odometerEnd")}
+                          error={
+                            fieldError(key + ".odometerEnd") ||
+                            continuity.find(
+                              (i) =>
+                                i.id === period.id && i.field === "odometerEnd",
+                            )?.message
+                          }
                           onChange={(odometerEnd) => change({ odometerEnd })}
                         />
                       </div>
                     )}
+                    <p className="muted">
+                      Total do item: {periodSummary(period)}
+                    </p>
                     {!sharedTiming && (
                       <button
                         type="button"
@@ -158,15 +200,19 @@ export function SchedulePeriods({
                   type="button"
                   onClick={() => {
                     const id = createId();
+                    const order = { outbound: 0, work: 1, inbound: 2 };
+                    const previous = orderedPeriods(periods)
+                      .filter((p) => order[p.kind] <= order[kind])
+                      .at(-1);
                     onChange([
                       ...periods,
                       {
                         id,
                         kind,
-                        start: "",
+                        start: previous?.end || "",
                         end: "",
                         pauseMinutes: "",
-                        odometerStart: "",
+                        odometerStart: previous?.odometerEnd || "",
                         odometerEnd: "",
                       },
                     ]);

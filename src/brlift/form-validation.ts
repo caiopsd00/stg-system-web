@@ -6,6 +6,7 @@ import {
   isNonTravelReport,
   participantDay,
   periodMinutes,
+  periodContinuityIssues,
   readingIssue,
   reportTeam,
   type Day,
@@ -37,6 +38,14 @@ function scheduleIssues(
       sharedTiming: (period: DayPeriod) => boolean,
       sharedKm: boolean,
     ) {
+      for (const issue of periodContinuityIssues(list)) {
+        const period = list.find((p) => p.id === issue.id)!;
+        add(
+          prefix + "." + issue.id + "." + issue.field,
+          [...parent, "periods-" + period.kind, issue.id],
+          issue.message,
+        );
+      }
       for (const period of list) {
         const group = [...parent, "periods-" + period.kind, period.id];
         const key = prefix + "." + period.id;
@@ -46,7 +55,7 @@ function scheduleIssues(
             add(key + ".start", group, "Informe um horário inicial válido.");
           if (!validTime(period.end))
             add(key + ".end", group, "Informe um horário final válido.");
-          if (timesValid) {
+          if (timesValid && period.end >= period.start) {
             const pause = Number(period.pauseMinutes || 0);
             if (
               !Number.isFinite(pause) ||
@@ -145,7 +154,9 @@ export function finalizationIssues(entry: Entry): FormIssue[] {
     add(
       entry.kind === "reports" ? "team.0" : "technicianId",
       entry.kind === "reports" ? ["A", "team", "tech-0"] : ["A"],
-      "Selecione o técnico responsável.",
+      entry.kind === "reports"
+        ? "Selecione ao menos um profissional."
+        : "Selecione o técnico responsável.",
     );
 
   if (entry.kind === "inspections") {
@@ -229,7 +240,7 @@ export function finalizationIssues(entry: Entry): FormIssue[] {
     if (reason.services.length !== 1)
       add("reason." + reason.id, base, "Informe um serviço por motivo.");
     for (const service of reason.services) {
-      const path = [...base, `services-${reason.id}`, service.id];
+      const path = base;
       if (!service.description.trim())
         add("service." + service.id, path, "Descreva o serviço realizado.");
       if (p.formRevision === 2 && !service.completed)
@@ -248,7 +259,7 @@ export function finalizationIssues(entry: Entry): FormIssue[] {
     if (!Number.isFinite(Number(part.quantity)) || Number(part.quantity) <= 0)
       add(key + ".quantity", path, "Informe quantidade maior que zero.");
     if (!["requested", "replaced"].includes(part.kind))
-      add(key + ".kind", path, "Selecione o tipo de serviço.");
+      add(key + ".kind", path, "Selecione o tipo de aplicação.");
   }
   if (isNonTravelReport(p.type) && hasReportTravel(p))
     add(

@@ -13,6 +13,7 @@ import {
   hasPeriodData,
   isNonTravelReport,
   periodReadingIssue,
+  periodContinuityIssues,
   periodNetMinutes,
   hasReportTravel,
   participantDay,
@@ -111,13 +112,13 @@ export function partProgress(p: Part): Progress {
   if (!Number.isFinite(p.quantity) || p.quantity <= 0)
     return result("invalid", "Quantidade deve ser maior que zero");
   if (!["requested", "replaced"].includes(p.kind))
-    return result("invalid", "Selecione o tipo de serviço");
+    return result("invalid", "Selecione o tipo de aplicação");
   if (!filled(p.code))
     return result(
       p.description || p.supplier ? "pending" : "empty",
       "Informe o código da peça",
     );
-  return result("complete", "Código, quantidade e tipo de serviço válidos");
+  return result("complete", "Código, quantidade e tipo de aplicação válidos");
 }
 export function periodProgress(p: DayPeriod, requireKm = false): Progress {
   if (!hasPeriodData(p))
@@ -146,6 +147,19 @@ export function periodProgress(p: DayPeriod, requireKm = false): Progress {
   }
 }
 export function dayProgress(d: Day, requireKm = false): Progress {
+  try {
+    const timelines = d.participants
+      ? d.participants
+          .filter((p) => p.present)
+          .map((p) => participantDay(d, p.technicianId))
+      : [d];
+    for (const timeline of timelines) {
+      const issue = periodContinuityIssues(dayPeriods(timeline))[0];
+      if (issue) return result("invalid", issue.message);
+    }
+  } catch (error) {
+    return result("invalid", (error as Error).message);
+  }
   if (d.participants !== undefined) {
     if (!d.date) return result("pending", "Informe a data");
     if (!realDate(d.date)) return result("invalid", "Data inexistente");
@@ -327,16 +341,13 @@ export function reportPendingPaths(entry: Entry): Record<string, string[]> {
   if (member < 0) paths.A = ["A"];
   for (const reason of p.reasons) {
     const base = ["C", reason.id];
-    const servicesPath = [...base, `services-${reason.id}`];
+    const servicesPath = base;
     const index = unfinished(reason.services, (s) =>
       serviceProgress(s, revised),
     );
     paths[base.join("/")] =
-      filled(reason.description) && index >= 0
-        ? [...servicesPath, reason.services[index].id]
-        : base;
-    paths[servicesPath.join("/")] =
-      index >= 0 ? [...servicesPath, reason.services[index].id] : servicesPath;
+      filled(reason.description) && index >= 0 ? servicesPath : base;
+    paths[servicesPath.join("/")] = servicesPath;
   }
   const reason = unfinished(p.reasons, (r) => reasonProgress(r, revised));
   paths.C = reason < 0 ? ["C"] : paths[["C", p.reasons[reason].id].join("/")];
@@ -365,8 +376,13 @@ export function reportPendingPaths(entry: Entry): Record<string, string[]> {
           } catch {
             continue;
           }
-          const progress = (period: DayPeriod) =>
-            periodProgress(period, revised && !person.sameVehicleAs);
+          const continuity = periodContinuityIssues(periods);
+          const progress = (period: DayPeriod) => {
+            const issue = continuity.find((item) => item.id === period.id);
+            return issue
+              ? result("invalid", issue.message)
+              : periodProgress(period, revised && !person.sameVehicleAs);
+          };
           const index = unfinished(periods, progress);
           if (
             index >= 0 &&

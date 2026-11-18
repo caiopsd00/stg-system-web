@@ -1,3 +1,4 @@
+import { CatalogSelect } from "./CatalogSelect";
 import { useEffect, useState } from "react";
 import type { Catalog, CatalogKind } from "../contracts/domain";
 import { request } from "./api";
@@ -161,49 +162,57 @@ export function CatalogField({
     }
   }
   return (
-    <div>
-      <label>
-        {label || kindLabels[kind]}
-        <select
-          aria-label={label || kindLabels[kind]}
-          aria-invalid={!!fieldError}
-          value={value || ""}
-          disabled={kind === "equipment" && !clientId}
-          onChange={(e) => {
-            setError("");
-            onChange(
-              e.target.value || null,
-              items.find((i) => i.id === e.target.value),
-            );
-          }}
-        >
-          <option value="">Selecione</option>
-          {value && !selected && unavailableLabel && (
-            <option value={value} disabled>
-              {unavailableLabel} (cadastro indisponível)
-            </option>
-          )}
-          {items
+    <div className="br-catalog-field">
+      <CatalogSelect
+        label={label || kindLabels[kind]}
+        value={value || ""}
+        disabled={kind === "equipment" && !clientId}
+        invalid={!!fieldError}
+        options={[
+          ...(value && !selected && unavailableLabel
+            ? [
+                {
+                  value,
+                  label: unavailableLabel + " (cadastro indisponível)",
+                  disabled: true,
+                },
+              ]
+            : []),
+          ...items
             .filter((i) => i.id === value || !excludeIds.includes(i.id))
             .filter((i) => kind !== "equipment" || i.clientId === clientId)
-            .map((i) => (
-              <option key={i.id} value={i.id}>
-                {kind === "equipment" ? equipmentLabel(i.data, i.name) : i.name}
-                {kind === "vehicles" && i.data.model
+            .map((i) => ({
+              value: i.id,
+              label:
+                (kind === "equipment"
+                  ? equipmentLabel(i.data, i.name)
+                  : i.name) +
+                (kind === "vehicles" && i.data.model
                   ? " — " + i.data.model
-                  : ""}
-                {i.identifier && kind !== "vehicles"
+                  : "") +
+                (i.identifier && kind !== "vehicles"
                   ? " — " +
                     (kind === "clients"
                       ? formatInput(i.identifier, "cnpj")
                       : kind === "technicians"
                         ? formatInput(i.identifier, "cpf")
                         : i.identifier)
-                  : ""}
-              </option>
-            ))}
-        </select>
-      </label>
+                  : ""),
+              search: [
+                i.name,
+                i.identifier,
+                ...Object.values(i.data).filter((v) => typeof v === "string"),
+              ].join(" "),
+            })),
+        ]}
+        onChange={(id) => {
+          setError("");
+          onChange(
+            id || null,
+            items.find((i) => i.id === id),
+          );
+        }}
+      />
       {fieldError && (
         <small className="br-inline-error" role="alert">
           {fieldError}
@@ -286,6 +295,7 @@ export function CatalogField({
                           ? "Placa"
                           : "Código"
                   }
+                  inputMode={kind === "technicians" ? "numeric" : undefined}
                   value={edit.identifier}
                   onChange={(v) => changeEdit({ identifier: v })}
                 />
