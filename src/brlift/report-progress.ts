@@ -139,13 +139,10 @@ export function periodProgress(p: DayPeriod, requireKm = false): Progress {
   const reading = periodReadingIssue(p);
   if (reading) return result("invalid", reading);
   try {
-    const duration = periodNetMinutes(p);
+    periodNetMinutes(p);
     if (requireKm && (!p.odometerStart || !p.odometerEnd))
       return result("pending", "Informe KM inicial e final ou N/A");
-    return result(
-      "complete",
-      `${duration} min líquidos; pausa descontada somente deste período`,
-    );
+    return result("complete", "");
   } catch (e) {
     return result("invalid", (e as Error).message);
   }

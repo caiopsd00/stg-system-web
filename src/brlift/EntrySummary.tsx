@@ -1,6 +1,7 @@
 import type { Catalog, Day, Entry, Media, Report } from "../contracts/domain";
 import {
   dayTotals,
+  formatDuration,
   dayPeriods,
   periodLabels,
   hasPeriodData,
@@ -66,7 +67,7 @@ function PeriodValues({ day }: { day: Day }) {
               key={period.id}
               label={`${periodLabels[kind]} ${i + 1}`}
               value={
-                `${period.start || "—"} às ${period.end || "—"} · pausa: ${period.pauseMinutes || "0"} min · Total: ${periodSummary(period)}` +
+                `${period.start || "—"} às ${period.end || "—"} · pausa: ${formatDuration(Number(period.pauseMinutes || 0))} · Total: ${periodSummary(period)}` +
                 (period.odometerStart || period.odometerEnd
                   ? ` · KM inicial: ${period.odometerStart || "—"} · KM final: ${period.odometerEnd || "—"}`
                   : "")
@@ -320,7 +321,7 @@ export function EntrySummary({
         let total = "";
         try {
           const t = dayTotals(day);
-          total = `${t.work} min de trabalho · ${t.travel} min de deslocamento · ${t.km} km`;
+          total = `${formatDuration(t.work)} de trabalho · ${formatDuration(t.travel)} de deslocamento · ${t.km} km`;
         } catch {
           total = "Revise os dados deste dia.";
         }

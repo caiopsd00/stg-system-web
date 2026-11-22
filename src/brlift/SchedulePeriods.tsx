@@ -1,5 +1,6 @@
 import {
   dayPeriods,
+  formatDuration,
   periodLabels,
   periodSummary,
   periodContinuityIssues,
@@ -94,8 +95,8 @@ export function SchedulePeriods({
                       " às " +
                       (period.end || "—") +
                       " · pausa: " +
-                      (period.pauseMinutes || "0") +
-                      " min · " +
+                      formatDuration(Number(period.pauseMinutes || 0)) +
+                      " · " +
                       periodSummary(period)
                     }
                   >

@@ -362,7 +362,7 @@ export function Fold({
         </button>
       </Heading>
       <div id={uid} data-fold-body hidden={!open}>
-        <p className="br-fold-hint">{status.detail}</p>
+        {status.detail && <p className="br-fold-hint">{status.detail}</p>}
         <Parent.Provider value={path}>{children}</Parent.Provider>
       </div>
     </section>

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { periodNetMinutes, periodSummary } from "../src/contracts/domain.ts";
 import {
   reportProgress,
   reportPendingPaths,
@@ -251,6 +252,32 @@ test("avisos das seções A a F seguem o mesmo padrão sem contagem de serviço"
   assert.equal(
     reportProgress(entry).D.detail,
     "Quantidade deve ser maior que zero",
+  );
+});
+test("período completo omite aviso redundante e preserva totais e validação da pausa", () => {
+  const period = {
+    id: "ida-1",
+    kind: "outbound",
+    start: "07:30",
+    end: "11:00",
+    pauseMinutes: "30",
+    odometerStart: "100",
+    odometerEnd: "500",
+  };
+  assert.deepEqual(periodProgress(period, true), {
+    state: "complete",
+    detail: "",
+  });
+  assert.equal(periodNetMinutes(period), 180);
+  assert.match(periodSummary(period), /3h00min líquidos/);
+  assert.match(periodSummary(period), /400 km/);
+  assert.equal(
+    periodProgress({ ...period, pauseMinutes: "211" }, true).state,
+    "invalid",
+  );
+  assert.equal(
+    periodProgress({ ...period, end: "" }, true).state,
+    "pending",
   );
 });
 test("peças validam quantidade e dias rejeitam virada de dia, mantendo pausas válidas", () => {

@@ -1,6 +1,7 @@
 import {
   dayParticipants,
   dayTotals,
+  formatDuration,
   hasDayData,
   newDay,
   reportTeam,
@@ -56,7 +57,7 @@ export function ScheduleDays({
         try {
           if (hasDayData(day)) {
             const t = dayTotals(day);
-            totals = `${t.work} min de trabalho · ${t.travel} min de deslocamento · ${t.km} km`;
+            totals = `${formatDuration(t.work)} de trabalho · ${formatDuration(t.travel)} de deslocamento · ${t.km} km`;
           }
         } catch (error) {
           totals = (error as Error).message;
