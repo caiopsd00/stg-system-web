@@ -158,28 +158,19 @@ export function ReportEditor({
               status={reasonProgress(r, true)}
             >
               <TextField
+                label="Descrição do motivo"
+                preserveCase
+                error={fieldError("reason." + r.id)}
+                value={r.description}
+                onChange={(description) => reason(i, { description })}
+              />
+              <TextField
                 label="Serviço realizado"
                 preserveCase
-                error={
-                  fieldError("service." + service.id) ||
-                  fieldError("reason." + r.id)
-                }
+                error={fieldError("service." + service.id)}
                 value={service.description}
-                onChange={(description) =>
-                  reason(i, {
-                    description:
-                      !r.description || r.description === service.description
-                        ? description
-                        : r.description,
-                    services: [{ ...service, description }],
-                  })
-                }
+                onChange={(description) => change({ description })}
               />
-              {r.description && r.description !== service.description && (
-                <p className="muted">
-                  Motivo registrado anteriormente: {r.description}
-                </p>
-              )}
               <TextField
                 label="Observações do serviço"
                 preserveCase
@@ -329,7 +320,7 @@ export function ReportEditor({
             </div>
             <p className="muted">
               Código, descrição e fornecedor são dados do cadastro. Use + Peça
-              ou Editar peça. Quantidade e tipo de serviço pertencem somente a
+              ou Editar peça. Quantidade e tipo de aplicação pertencem somente a
               este atendimento.
             </p>
             {!v.catalogId && v.code && (

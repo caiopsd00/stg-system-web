@@ -211,6 +211,46 @@ test("serviço pendente abre diretamente o motivo; corrigir limpa seus erros", (
   );
 });
 
+test("motivo e serviço têm erros independentes no mesmo bloco, inclusive em registros antigos", () => {
+  for (const formRevision of [undefined, 2]) {
+    const entry = base("reports", { ...newReport(), formRevision });
+    const reason = {
+      id: "r",
+      description: "",
+      pending: "",
+      services: [
+        {
+          id: "s",
+          description: "Reparo antigo",
+          notes: "",
+          photos: [],
+          completed: "Sim",
+        },
+      ],
+    };
+    entry.payload.reasons = [reason];
+    const errors = () =>
+      finalizationIssues(entry).filter(
+        (issue) => issue.key === "reason.r" || issue.key === "service.s",
+      );
+    assert.deepEqual(
+      errors().map((issue) => issue.key),
+      ["reason.r"],
+    );
+    assert.deepEqual(errors()[0].path, ["C", "r"]);
+    reason.description = "Falha antiga com acentuação";
+    assert.deepEqual(errors(), []);
+    reason.services[0].description = "";
+    assert.deepEqual(
+      errors().map((issue) => issue.key),
+      ["service.s"],
+    );
+    assert.equal(reason.description, "Falha antiga com acentuação");
+    reason.services[0].description = "Reparo ajustado";
+    assert.deepEqual(errors(), []);
+  }
+});
+
 test("inspeção mostra item pendente e assinaturas separadas; resolução remove erros", () => {
   const payload = {
     documentFields: { "011": "" },

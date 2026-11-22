@@ -49,12 +49,16 @@ function realDate(value: string) {
 export function combineProgress(
   items: Progress[],
   empty = "Nenhum item informado (opcional)",
+  complete?: string,
 ): Progress {
   if (!items.length) return result("empty", empty);
   const invalid = items.find((i) => i.state === "invalid");
   if (invalid) return invalid;
   if (items.every((i) => i.state === "complete"))
-    return result("complete", `${items.length} item(ns) validado(s)`);
+    return result(
+      "complete",
+      complete || `${items.length} item(ns) validado(s)`,
+    );
   if (items.every((i) => i.state === "empty"))
     return result("empty", items[0].detail);
   return result("pending", items.find((i) => i.state !== "complete")!.detail);
@@ -101,7 +105,7 @@ export function reasonProgress(r: Reason, requireCompleted = false): Progress {
   return services.state === "complete"
     ? result(
         "complete",
-        `${r.services.length} serviço(s); pendências são opcionais`,
+        "Motivo e serviço preenchidos; observações, pendências e fotos são opcionais",
       )
     : result(
         services.state === "invalid" ? "invalid" : "pending",
@@ -265,7 +269,7 @@ export function reportProgress(entry: Entry): Record<string, Progress> {
   )
     A = result(
       "complete",
-      "Dados obrigatórios preenchidos; solicitante, veículo e local são opcionais",
+      "Identificação preenchida; solicitante, veículo e local são opcionais",
     );
   const eq = p.equipment;
   let B = result(
@@ -281,18 +285,24 @@ export function reportProgress(entry: Entry): Record<string, Progress> {
   else if (["type", "brand", "model", "serial"].every((k) => filled(eq[k])))
     B = result(
       "complete",
-      "Cadastro válido; ano, placa, frota e leituras são opcionais",
+      "Equipamento preenchido; ano, placa, frota e leituras são opcionais",
     );
   const C = combineProgress(
     p.reasons.map((r) => reasonProgress(r, revised)),
     "Adicione pelo menos um motivo e seu serviço",
+    "Motivos e serviços preenchidos; observações, pendências e fotos são opcionais",
   );
-  const D = combineProgress(p.parts.map(partProgress));
+  const D = combineProgress(
+    p.parts.map(partProgress),
+    "Peças não informadas (opcional)",
+    "Peças preenchidas; código, quantidade e tipo de aplicação válidos",
+  );
   let E = combineProgress(
     p.days
       .map((d) => dayProgress(d, revised))
       .filter((day) => day.state !== "empty"),
     "Cronograma não informado (opcional)",
+    "Cronograma preenchido; datas e períodos válidos",
   );
   if (isNonTravelReport(p.type) && hasReportTravel(p))
     E = result(
@@ -312,7 +322,7 @@ export function reportProgress(entry: Entry): Record<string, Progress> {
         ? "pending"
         : "empty",
     finalValues.every(filled)
-      ? "Status e assinaturas registrados"
+      ? "Status final preenchido e assinaturas registradas"
       : "Preencha o status e salve ambas as assinaturas",
   );
   return { A, B, C, D, E, F };

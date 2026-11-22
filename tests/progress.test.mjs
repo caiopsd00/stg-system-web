@@ -205,8 +205,52 @@ test("motivos e serviços exigem apenas os dados obrigatórios atuais", () => {
   r.services = [{ description: "Reparo", notes: "", photos: [] }];
   assert.equal(reasonProgress(r).state, "complete");
   assert.equal(
+    reasonProgress(r).detail,
+    "Motivo e serviço preenchidos; observações, pendências e fotos são opcionais",
+  );
+  assert.equal(
     serviceProgress({ description: "", notes: "Nota", photos: [] }).state,
     "pending",
+  );
+});
+test("avisos das seções A a F seguem o mesmo padrão sem contagem de serviço", () => {
+  const entry = report();
+  Object.assign(entry, { number: "OS1", clientId: "c", technicianId: "t" });
+  Object.assign(entry.payload, {
+    equipment: {
+      type: "Guindaste",
+      brand: "Marca",
+      model: "Modelo",
+      serial: "Série",
+    },
+    reasons: [
+      {
+        id: "r",
+        description: "Falha",
+        pending: "",
+        services: [{ id: "s", description: "Reparo", notes: "", photos: [] }],
+      },
+    ],
+    parts: [{ id: "p", code: "P1", quantity: 1, kind: "requested" }],
+    days: [{ ...day(), id: "d", work: { start: "08:00", end: "09:00" } }],
+    concluded: "Sim",
+    released: "Sim",
+    technicianSignature: { uri: "/api/media/t" },
+    clientSignature: { uri: "/api/media/c" },
+  });
+  for (const status of Object.values(reportProgress(entry))) {
+    assert.equal(status.state, "complete");
+    assert.match(status.detail, /preenchid/);
+    assert.doesNotMatch(status.detail, /\d+ serviço|item\(ns\)/);
+  }
+  entry.payload.reasons[0].description = "";
+  assert.equal(reportProgress(entry).C.state, "pending");
+  assert.equal(reportProgress(entry).C.detail, "Descreva o motivo");
+  entry.payload.parts[0].quantity = 0;
+  assert.equal(reportProgress(entry).D.state, "invalid");
+  assert.equal(
+    reportProgress(entry).D.detail,
+    "Quantidade deve ser maior que zero",
   );
 });
 test("peças validam quantidade e dias rejeitam virada de dia, mantendo pausas válidas", () => {
