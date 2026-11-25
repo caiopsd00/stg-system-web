@@ -29,6 +29,8 @@ import { FormErrors } from "./FormErrors";
 import { openFold } from "./Accordion";
 import { createId } from "./id";
 import { Brand } from "./Brand";
+import { UserContext } from "./UserContext";
+import { recordVisibleToUser } from "./record-access";
 import "./style.css";
 const emptyCatalog = (): Record<CatalogKind, Catalog[]> => ({
   clients: [],
@@ -290,9 +292,14 @@ export default function App() {
     setNotice("");
     try {
       const saved = await saveEntry({ ...entry, status: "draft" });
-      setEntry(saved);
+      const visible = recordVisibleToUser(saved, user, catalog.technicians);
+      setEntry(visible ? saved : null);
       setDirty(false);
-      setNotice("Rascunho salvo no servidor.");
+      setNotice(
+        visible
+          ? "Rascunho salvo no servidor."
+          : "Rascunho salvo para a equipe selecionada. Como você não está vinculado, ele não aparecerá na sua lista.",
+      );
       await reload();
     } catch (cause) {
       setError((cause as Error).message);
@@ -334,8 +341,13 @@ export default function App() {
       setDirty(false);
       setFinalizeAttempted(false);
       setDetail(null);
-      setNotice("Registro finalizado e salvo no servidor.");
-      if (withPdf) {
+      const visible = recordVisibleToUser(saved, user, catalog.technicians);
+      setNotice(
+        visible
+          ? "Registro finalizado e salvo no servidor."
+          : "Registro finalizado para a equipe selecionada. Como você não está vinculado, ele não aparecerá na sua lista e o PDF ficará disponível para a equipe.",
+      );
+      if (withPdf && visible) {
         try {
           await download(saved);
         } catch (error) {
@@ -439,475 +451,485 @@ export default function App() {
       </main>
     );
   return (
-    <div className="br-app">
-      <header className="br-header">
-        <Brand />
-        <nav aria-label="Navegação principal">
-          <button
-            aria-pressed={!accountPage && kind === "reports"}
-            onClick={() => navigate("reports")}
-          >
-            Relatório Técnico
-          </button>
-          <button
-            aria-pressed={!accountPage && kind === "inspections"}
-            onClick={() => navigate("inspections")}
-          >
-            Inspeções
-          </button>
-          {canAdminister(user.role) && (
+    <UserContext.Provider value={user}>
+      <div className="br-app">
+        <header className="br-header">
+          <Brand />
+          <nav aria-label="Navegação principal">
             <button
-              aria-pressed={accountPage === "users"}
-              onClick={() => navigate("users")}
+              aria-pressed={!accountPage && kind === "reports"}
+              onClick={() => navigate("reports")}
             >
-              Cadastros
+              Relatório Técnico
             </button>
-          )}
-          {!canAdminister(user.role) && (
             <button
-              aria-pressed={accountPage === "profile"}
-              onClick={() => navigate("profile")}
+              aria-pressed={!accountPage && kind === "inspections"}
+              onClick={() => navigate("inspections")}
             >
-              Editar perfil
+              Inspeções
             </button>
+            {canAdminister(user.role) && (
+              <button
+                aria-pressed={accountPage === "users"}
+                onClick={() => navigate("users")}
+              >
+                Cadastros
+              </button>
+            )}
+            {!canAdminister(user.role) && (
+              <button
+                aria-pressed={accountPage === "profile"}
+                onClick={() => navigate("profile")}
+              >
+                Editar perfil
+              </button>
+            )}
+          </nav>
+          <div className="br-header-actions">
+            <button
+              className="br-logout-button"
+              disabled={busy || pendingMedia > 0}
+              onClick={async () => {
+                if (dirty && !confirm("Sair sem salvar?")) return;
+                await request("/auth/logout", {});
+                clearSessionData();
+                setUser(null);
+              }}
+            >
+              Sair
+            </button>
+          </div>
+        </header>
+        <main className="br-main">
+          {error && (
+            <div className="br-alert" role="alert">
+              {error}
+              <button onClick={() => setError("")}>Fechar</button>
+            </div>
           )}
-        </nav>
-        <div className="br-header-actions">
-          <button
-            className="br-logout-button"
-            disabled={busy || pendingMedia > 0}
-            onClick={async () => {
-              if (dirty && !confirm("Sair sem salvar?")) return;
-              await request("/auth/logout", {});
-              clearSessionData();
-              setUser(null);
-            }}
-          >
-            Sair
-          </button>
-        </div>
-      </header>
-      <main className="br-main">
-        {error && (
-          <div className="br-alert" role="alert">
-            {error}
-            <button onClick={() => setError("")}>Fechar</button>
-          </div>
-        )}
-        {notice && (
-          <div role="status" className="br-notice">
-            {notice}
-          </div>
-        )}
-        {accountPage === "users" ? (
-          <UserRegistration
-            currentUserId={user.id}
-            onUserUpdated={(updated) => {
-              if (updated.id !== user.id) {
+          {notice && (
+            <div role="status" className="br-notice">
+              {notice}
+            </div>
+          )}
+          {accountPage === "users" ? (
+            <UserRegistration
+              currentUserId={user.id}
+              onUserUpdated={(updated) => {
+                if (updated.id !== user.id) {
+                  void reloadCatalog().catch((cause) =>
+                    setError((cause as Error).message),
+                  );
+                  return;
+                }
+                if (updated.role !== user.role) clearSessionData();
+                setUser((current: any) =>
+                  current?.id === updated.id
+                    ? { ...current, ...updated }
+                    : current,
+                );
+                if (!canAdminister(updated.role)) setAccountPage(null);
+              }}
+              onCreated={async () => {
+                try {
+                  await reloadCatalog();
+                } catch (cause) {
+                  setError((cause as Error).message);
+                }
+              }}
+            />
+          ) : accountPage === "profile" ? (
+            <ProfileEditor
+              onUpdated={(updated) => {
+                setUser((current: any) => ({ ...current, ...updated }));
                 void reloadCatalog().catch((cause) =>
                   setError((cause as Error).message),
                 );
-                return;
-              }
-              if (updated.role !== user.role) clearSessionData();
-              setUser((current: any) =>
-                current?.id === updated.id
-                  ? { ...current, ...updated }
-                  : current,
-              );
-              if (!canAdminister(updated.role)) setAccountPage(null);
-            }}
-            onCreated={async () => {
-              try {
-                await reloadCatalog();
-              } catch (cause) {
-                setError((cause as Error).message);
-              }
-            }}
-          />
-        ) : accountPage === "profile" ? (
-          <ProfileEditor
-            onUpdated={(updated) => {
-              setUser((current: any) => ({ ...current, ...updated }));
-              void reloadCatalog().catch((cause) =>
-                setError((cause as Error).message),
-              );
-            }}
-          />
-        ) : entry ? (
-          <>
-            <div className="br-title">
-              <div>
-                <button onClick={leave}>← Voltar à gestão</button>
-                <h1>
-                  {entry.kind === "reports"
-                    ? "Atendimento técnico"
-                    : "Inspeção técnica"}{" "}
-                  {entry.number}
-                </h1>
-                <p>
-                  {dirty
-                    ? "Alterações não salvas"
-                    : entry.version
-                      ? "Versão " + entry.version + " salva"
-                      : "Novo registro"}
-                </p>
+              }}
+            />
+          ) : entry ? (
+            <>
+              <div className="br-title">
+                <div>
+                  <button onClick={leave}>← Voltar à gestão</button>
+                  <h1>
+                    {entry.kind === "reports"
+                      ? "Atendimento técnico"
+                      : "Inspeção técnica"}{" "}
+                    {entry.number}
+                  </h1>
+                  <p>
+                    {dirty
+                      ? "Alterações não salvas"
+                      : entry.version
+                        ? "Versão " + entry.version + " salva"
+                        : "Novo registro"}
+                  </p>
+                </div>
               </div>
-            </div>
-            <FormErrors issues={formIssues}>
-              <fieldset
-                className="br-form-content"
-                disabled={busy || pendingMedia > 0}
-              >
-                {(entry.kind === "reports" || entry.kind === "inspections") && (
-                  <div className="br-grid" style={{ marginBottom: 20 }}>
-                    <Field
-                      label="O.S. OMIE"
-                      inputMode="numeric"
-                      error={
-                        formIssues.find((issue) => issue.key === "number")
-                          ?.message
-                      }
-                      value={entry.number}
-                      onChange={(number) => update({ ...entry, number })}
-                      required
-                    />
-                  </div>
-                )}
-                {entry.kind === "reports" ? (
-                  <ReportEditor
-                    technicians={catalog.technicians}
-                    key={entry.id}
-                    identification={
-                      <IdentificationFields
-                        entry={entry}
-                        onChange={update}
-                        catalog={catalog}
-                        reload={reloadCatalog}
-                      />
-                    }
-                    team={
-                      <ReportTeamEditor
-                        entry={entry}
-                        onChange={update}
-                        technicians={catalog.technicians}
-                        reload={reloadCatalog}
-                      />
-                    }
-                    entry={entry}
-                    onChange={update}
-                    equipment={catalog.equipment}
-                    parts={catalog.parts}
-                    reloadCatalog={reloadCatalog}
-                    validationIssues={formIssues}
-                  />
-                ) : (
-                  <InspectionEditor
-                    key={entry.id}
-                    entry={entry}
-                    onChange={update}
-                    technicians={catalog.technicians}
-                    reloadCatalog={reloadCatalog}
-                    validationIssues={formIssues}
-                    identification={
-                      <IdentificationFields
-                        entry={entry}
-                        onChange={update}
-                        catalog={catalog}
-                        reload={reloadCatalog}
-                      />
-                    }
-                  />
-                )}
-              </fieldset>
-              <footer className="br-save">
-                {pendingMedia > 0 && (
-                  <p role="status">Aguarde o envio das fotos e assinaturas…</p>
-                )}
-                {entry.status === "draft" && (
-                  <button
-                    type="button"
-                    disabled={busy || pendingMedia > 0}
-                    onClick={saveDraft}
-                  >
-                    Salvar rascunho
-                  </button>
-                )}
-                <button
-                  className="primary"
+              <FormErrors issues={formIssues}>
+                <fieldset
+                  className="br-form-content"
                   disabled={busy || pendingMedia > 0}
-                  onClick={requestFinalize}
                 >
-                  Finalizar{" "}
-                  {entry.kind === "reports" ? "atendimento" : "inspeção"}
-                </button>
-              </footer>
-            </FormErrors>
-            {confirmFinalize && (
-              <div
-                className="br-modal"
-                role="presentation"
-                onMouseDown={(event) => {
-                  if (event.target === event.currentTarget)
-                    setConfirmFinalize(false);
-                }}
-              >
-                <section
-                  className="br-dialog br-finalize-dialog"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="br-finalize-title"
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") setConfirmFinalize(false);
+                  {(entry.kind === "reports" ||
+                    entry.kind === "inspections") && (
+                    <div className="br-grid" style={{ marginBottom: 20 }}>
+                      <Field
+                        label="O.S. OMIE"
+                        inputMode="numeric"
+                        error={
+                          formIssues.find((issue) => issue.key === "number")
+                            ?.message
+                        }
+                        value={entry.number}
+                        onChange={(number) => update({ ...entry, number })}
+                        required
+                      />
+                    </div>
+                  )}
+                  {entry.kind === "reports" ? (
+                    <ReportEditor
+                      technicians={catalog.technicians}
+                      key={entry.id}
+                      identification={
+                        <IdentificationFields
+                          entry={entry}
+                          onChange={update}
+                          catalog={catalog}
+                          reload={reloadCatalog}
+                        />
+                      }
+                      team={
+                        <ReportTeamEditor
+                          entry={entry}
+                          onChange={update}
+                          technicians={catalog.technicians}
+                          reload={reloadCatalog}
+                        />
+                      }
+                      entry={entry}
+                      onChange={update}
+                      equipment={catalog.equipment}
+                      parts={catalog.parts}
+                      reloadCatalog={reloadCatalog}
+                      validationIssues={formIssues}
+                    />
+                  ) : (
+                    <InspectionEditor
+                      key={entry.id}
+                      entry={entry}
+                      onChange={update}
+                      technicians={catalog.technicians}
+                      reloadCatalog={reloadCatalog}
+                      validationIssues={formIssues}
+                      identification={
+                        <IdentificationFields
+                          entry={entry}
+                          onChange={update}
+                          catalog={catalog}
+                          reload={reloadCatalog}
+                        />
+                      }
+                    />
+                  )}
+                </fieldset>
+                <footer className="br-save">
+                  {pendingMedia > 0 && (
+                    <p role="status">
+                      Aguarde o envio das fotos e assinaturas…
+                    </p>
+                  )}
+                  {entry.status === "draft" && (
+                    <button
+                      type="button"
+                      disabled={busy || pendingMedia > 0}
+                      onClick={saveDraft}
+                    >
+                      Salvar rascunho
+                    </button>
+                  )}
+                  <button
+                    className="primary"
+                    disabled={busy || pendingMedia > 0}
+                    onClick={requestFinalize}
+                  >
+                    Finalizar{" "}
+                    {entry.kind === "reports" ? "atendimento" : "inspeção"}
+                  </button>
+                </footer>
+              </FormErrors>
+              {confirmFinalize && (
+                <div
+                  className="br-modal"
+                  role="presentation"
+                  onMouseDown={(event) => {
+                    if (event.target === event.currentTarget)
+                      setConfirmFinalize(false);
                   }}
                 >
-                  <h2 id="br-finalize-title">
-                    Finalizar{" "}
-                    {entry.kind === "reports" ? "atendimento" : "inspeção"}?
-                  </h2>
-                  <p>
-                    Todos os campos obrigatórios estão válidos. Escolha como
-                    deseja concluir.
+                  <section
+                    className="br-dialog br-finalize-dialog"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="br-finalize-title"
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setConfirmFinalize(false);
+                    }}
+                  >
+                    <h2 id="br-finalize-title">
+                      Finalizar{" "}
+                      {entry.kind === "reports" ? "atendimento" : "inspeção"}?
+                    </h2>
+                    <p>
+                      Todos os campos obrigatórios estão válidos. Escolha como
+                      deseja concluir.
+                    </p>
+                    <div className="br-actions">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmFinalize(false)}
+                        disabled={busy}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => finalize(false)}
+                        disabled={busy}
+                      >
+                        Só finalizar
+                      </button>
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => finalize(true)}
+                        disabled={busy}
+                      >
+                        Finalizar e baixar PDF
+                      </button>
+                    </div>
+                  </section>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="br-title">
+                <div>
+                  <p className="muted">
+                    {canAdminister(user.role)
+                      ? "PAINEL DE GESTÃO"
+                      : "MEUS REGISTROS"}
                   </p>
-                  <div className="br-actions">
-                    <button
-                      type="button"
-                      onClick={() => setConfirmFinalize(false)}
-                      disabled={busy}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => finalize(false)}
-                      disabled={busy}
-                    >
-                      Só finalizar
-                    </button>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => finalize(true)}
-                      disabled={busy}
-                    >
-                      Finalizar e baixar PDF
-                    </button>
-                  </div>
-                </section>
+                  <h1>
+                    {kind === "reports"
+                      ? canAdminister(user.role)
+                        ? "Atendimentos técnicos"
+                        : "Meus atendimentos"
+                      : canAdminister(user.role)
+                        ? "Inspeções"
+                        : "Minhas inspeções"}
+                  </h1>
+                </div>
+                <button className="primary" onClick={create} disabled={busy}>
+                  + {kind === "reports" ? "Novo atendimento" : "Nova inspeção"}
+                </button>
               </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="br-title">
-              <div>
-                <p className="muted">
-                  {canAdminister(user.role)
-                    ? "PAINEL DE GESTÃO"
-                    : "MEUS REGISTROS"}
-                </p>
-                <h1>
-                  {kind === "reports"
-                    ? canAdminister(user.role)
-                      ? "Atendimentos técnicos"
-                      : "Meus atendimentos"
-                    : canAdminister(user.role)
-                      ? "Inspeções"
-                      : "Minhas inspeções"}
-                </h1>
+              <div className="br-metrics">
+                <div>
+                  <strong>{entries.length}</strong> registros encontrados
+                </div>
+                <div>
+                  <strong>
+                    {entries.filter((e) => e.status === "draft").length}
+                  </strong>{" "}
+                  em preenchimento
+                </div>
+                <div>
+                  <strong>
+                    {entries.filter((e) => e.status === "finalized").length}
+                  </strong>{" "}
+                  finalizados
+                </div>
               </div>
-              <button className="primary" onClick={create} disabled={busy}>
-                + {kind === "reports" ? "Novo atendimento" : "Nova inspeção"}
-              </button>
-            </div>
-            <div className="br-metrics">
-              <div>
-                <strong>{entries.length}</strong> registros encontrados
-              </div>
-              <div>
-                <strong>
-                  {entries.filter((e) => e.status === "draft").length}
-                </strong>{" "}
-                em preenchimento
-              </div>
-              <div>
-                <strong>
-                  {entries.filter((e) => e.status === "finalized").length}
-                </strong>{" "}
-                finalizados
-              </div>
-            </div>
-            <section className="br-section br-grid">
-              <Field
-                label={
-                  canAdminister(user.role)
-                    ? "Buscar número, cliente ou técnico"
-                    : "Buscar número ou cliente"
-                }
-                value={filters.q}
-                onChange={(q) => setFilters({ ...filters, q })}
-              />
-              <Field
-                label="De"
-                type="date"
-                value={filters.from}
-                onChange={(from) => setFilters({ ...filters, from })}
-              />
-              <Field
-                label="Até"
-                type="date"
-                value={filters.to}
-                onChange={(to) => setFilters({ ...filters, to })}
-              />
-              <label>
-                Cliente
-                <select
-                  value={filters.clientId}
-                  onChange={(e) =>
-                    setFilters({ ...filters, clientId: e.target.value })
+              <section className="br-section br-grid">
+                <Field
+                  label={
+                    canAdminister(user.role)
+                      ? "Buscar número, cliente ou técnico"
+                      : "Buscar número ou cliente"
                   }
-                >
-                  <option value="">Todos</option>
-                  {catalog.clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {canAdminister(user.role) && (
+                  value={filters.q}
+                  onChange={(q) => setFilters({ ...filters, q })}
+                />
+                <Field
+                  label="De"
+                  type="date"
+                  value={filters.from}
+                  onChange={(from) => setFilters({ ...filters, from })}
+                />
+                <Field
+                  label="Até"
+                  type="date"
+                  value={filters.to}
+                  onChange={(to) => setFilters({ ...filters, to })}
+                />
                 <label>
-                  Técnico
+                  Cliente
                   <select
-                    value={filters.technicianId}
+                    value={filters.clientId}
                     onChange={(e) =>
-                      setFilters({ ...filters, technicianId: e.target.value })
+                      setFilters({ ...filters, clientId: e.target.value })
                     }
                   >
                     <option value="">Todos</option>
-                    {catalog.technicians.map((technician) => (
-                      <option key={technician.id} value={technician.id}>
-                        {technician.name}
+                    {catalog.clients.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.name}
                       </option>
                     ))}
                   </select>
                 </label>
-              )}
-              <label>
-                Status
-                <select
-                  value={filters.status}
-                  onChange={(e) =>
-                    setFilters({ ...filters, status: e.target.value })
-                  }
-                >
-                  <option value="">Todos</option>
-                  <option value="draft">Em preenchimento</option>
-                  <option value="finalized">Finalizado</option>
-                </select>
-              </label>
-            </section>
-            <div className="br-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>O.S. OMIE</th>
-                    <th>Cliente</th>
-                    <th>Técnico</th>
-                    <th>Status / progresso</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map((e) => {
-                    const items =
-                      e.payload.sections?.flatMap((s: any) => s.items) || [];
-                    return (
-                      <tr key={e.id}>
-                        <td>
-                          <strong>{e.number}</strong>
-                          {e.payload.formRevision !== 2 && (
-                            <small>
-                              {e.date.split("-").reverse().join("/")}
-                            </small>
-                          )}
-                        </td>
-                        <td>{e.clientName || "Não informado"}</td>
-                        <td>{e.technicianName || "Não informado"}</td>
-                        <td>
-                          {e.status === "finalized"
-                            ? "Finalizado"
-                            : "Em preenchimento"}
-                          {items.length > 0 && (
-                            <small>
-                              {items.filter((i: any) => i.situation).length}/
-                              {items.length} itens
-                            </small>
-                          )}
-                        </td>
-                        <td>
-                          <div className="br-actions">
-                            <button onClick={() => setDetail(e)}>Resumo</button>
-                            <button onClick={() => editRecord(e)}>
-                              Editar
-                            </button>
-                            <button disabled={busy} onClick={() => pdf(e)}>
-                              PDF
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {!entries.length && (
-                <p className="br-empty">
-                  Nenhum registro encontrado. Crie o primeiro ou ajuste os
-                  filtros.
+                {canAdminister(user.role) && (
+                  <label>
+                    Técnico
+                    <select
+                      value={filters.technicianId}
+                      onChange={(e) =>
+                        setFilters({ ...filters, technicianId: e.target.value })
+                      }
+                    >
+                      <option value="">Todos</option>
+                      {catalog.technicians.map((technician) => (
+                        <option key={technician.id} value={technician.id}>
+                          {technician.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label>
+                  Status
+                  <select
+                    value={filters.status}
+                    onChange={(e) =>
+                      setFilters({ ...filters, status: e.target.value })
+                    }
+                  >
+                    <option value="">Todos</option>
+                    <option value="draft">Em preenchimento</option>
+                    <option value="finalized">Finalizado</option>
+                  </select>
+                </label>
+              </section>
+              <div className="br-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>O.S. OMIE</th>
+                      <th>Cliente</th>
+                      <th>Técnico</th>
+                      <th>Status / progresso</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((e) => {
+                      const items =
+                        e.payload.sections?.flatMap((s: any) => s.items) || [];
+                      return (
+                        <tr key={e.id}>
+                          <td>
+                            <strong>{e.number}</strong>
+                            {e.payload.formRevision !== 2 && (
+                              <small>
+                                {e.date.split("-").reverse().join("/")}
+                              </small>
+                            )}
+                          </td>
+                          <td>{e.clientName || "Não informado"}</td>
+                          <td>{e.technicianName || "Não informado"}</td>
+                          <td>
+                            {e.status === "finalized"
+                              ? "Finalizado"
+                              : "Em preenchimento"}
+                            {items.length > 0 && (
+                              <small>
+                                {items.filter((i: any) => i.situation).length}/
+                                {items.length} itens
+                              </small>
+                            )}
+                          </td>
+                          <td>
+                            <div className="br-actions">
+                              <button onClick={() => setDetail(e)}>
+                                Resumo
+                              </button>
+                              <button onClick={() => editRecord(e)}>
+                                Editar
+                              </button>
+                              <button disabled={busy} onClick={() => pdf(e)}>
+                                PDF
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {!entries.length && (
+                  <p className="br-empty">
+                    Nenhum registro encontrado. Crie o primeiro ou ajuste os
+                    filtros.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+          {detail && (
+            <div
+              className="br-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Resumo do registro"
+            >
+              <div className="br-dialog">
+                <h2>{detail.number}</h2>
+                <p>
+                  {detail.clientName} · {detail.technicianName}
                 </p>
-              )}
-            </div>
-          </>
-        )}
-        {detail && (
-          <div
-            className="br-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Resumo do registro"
-          >
-            <div className="br-dialog">
-              <h2>{detail.number}</h2>
-              <p>
-                {detail.clientName} · {detail.technicianName}
-              </p>
-              <p>
-                {detail.payload.formRevision !== 2 &&
-                  detail.date.split("-").reverse().join("/") + " · "}
-                {detail.status === "finalized"
-                  ? "Finalizado"
-                  : "Em preenchimento"}
-              </p>
-              <EntrySummary entry={detail} technicians={catalog.technicians} />
-              <div className="br-actions">
-                <button
-                  onClick={() => {
-                    editRecord(detail);
-                    setDetail(null);
-                  }}
-                >
-                  Editar
-                </button>
-                <button disabled={busy} onClick={() => pdf(detail)}>
-                  Baixar PDF
-                </button>
-                <button onClick={() => setDetail(null)}>Fechar</button>
+                <p>
+                  {detail.payload.formRevision !== 2 &&
+                    detail.date.split("-").reverse().join("/") + " · "}
+                  {detail.status === "finalized"
+                    ? "Finalizado"
+                    : "Em preenchimento"}
+                </p>
+                <EntrySummary
+                  entry={detail}
+                  technicians={catalog.technicians}
+                />
+                <div className="br-actions">
+                  <button
+                    onClick={() => {
+                      editRecord(detail);
+                      setDetail(null);
+                    }}
+                  >
+                    Editar
+                  </button>
+                  <button disabled={busy} onClick={() => pdf(detail)}>
+                    Baixar PDF
+                  </button>
+                  <button onClick={() => setDetail(null)}>Fechar</button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </main>
-    </div>
+          )}
+        </main>
+      </div>
+    </UserContext.Provider>
   );
 }

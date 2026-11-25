@@ -1,5 +1,7 @@
 import { CatalogSelect } from "./CatalogSelect";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
+import { UserContext } from "./UserContext";
+import { catalogActions } from "./catalog-permissions";
 import type { Catalog, CatalogKind } from "../contracts/domain";
 import { request } from "./api";
 import { createId } from "./id";
@@ -55,6 +57,8 @@ export function CatalogField({
     [edit, setEdit] = useState<any>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const user = useContext(UserContext);
+  const actions = catalogActions(kind, user?.role, selected);
   useEffect(() => {
     setError("");
   }, [value, clientId]);
@@ -112,6 +116,7 @@ export function CatalogField({
     setError("");
   }
   function open(existing?: Catalog) {
+    if (existing ? !actions.edit : !actions.create) return;
     setError("");
     setEdit(
       existing
@@ -218,51 +223,57 @@ export function CatalogField({
           {fieldError}
         </small>
       )}
-      <div className="br-actions">
-        <button
-          type="button"
-          onClick={() => open()}
-          disabled={busy || (kind === "equipment" && !clientId)}
-        >
-          + {kindLabels[kind]}
-        </button>
-        <button
-          type="button"
-          disabled={busy || !selected}
-          onClick={() => open(selected)}
-        >
-          Editar {kindLabels[kind].toLowerCase()}
-        </button>
-        <button
-          type="button"
-          disabled={busy || !selected}
-          onClick={async () => {
-            if (
-              !selected ||
-              !confirm("Desativar este cadastro? O histórico será preservado.")
-            )
-              return;
-            setBusy(true);
-            setError("");
-            try {
-              await request(
-                "/catalog/" + kind + "/" + selected.id,
-                { baseVersion: selected.version },
-                "DELETE",
-              );
-              await reload();
-              onChange(null);
-              setError("");
-            } catch (e) {
-              setError((e as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          Excluir
-        </button>
-      </div>
+      {actions.create && (
+        <div className="br-actions">
+          <button
+            type="button"
+            onClick={() => open()}
+            disabled={busy || (kind === "equipment" && !clientId)}
+          >
+            + {kindLabels[kind]}
+          </button>
+          <button
+            type="button"
+            disabled={busy || !actions.edit}
+            onClick={() => open(selected)}
+          >
+            Editar {kindLabels[kind].toLowerCase()}
+          </button>
+          {actions.archive && (
+            <button
+              type="button"
+              disabled={busy || !selected}
+              onClick={async () => {
+                if (
+                  !selected ||
+                  !confirm(
+                    "Desativar este cadastro? O histórico será preservado.",
+                  )
+                )
+                  return;
+                setBusy(true);
+                setError("");
+                try {
+                  await request(
+                    "/catalog/" + kind + "/" + selected.id,
+                    { baseVersion: selected.version },
+                    "DELETE",
+                  );
+                  await reload();
+                  onChange(null);
+                  setError("");
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Excluir
+            </button>
+          )}
+        </div>
+      )}
       {error && !edit && <p role="alert">{error}</p>}
       {edit && (
         <div
