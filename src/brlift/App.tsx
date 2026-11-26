@@ -21,6 +21,7 @@ import { PdfActionsDialog } from "./PdfActionsDialog";
 import { IdentificationFields } from "./IdentificationFields";
 import { EntrySummary } from "./EntrySummary";
 import { Field } from "./Fields";
+import { RecordFilters, emptyFilters } from "./RecordFilters";
 import { ReportEditor } from "./ReportEditor";
 import { ReportTeamEditor } from "./ReportTeamEditor";
 import { InspectionEditor } from "./InspectionEditor";
@@ -42,14 +43,6 @@ const emptyCatalog = (): Record<CatalogKind, Catalog[]> => ({
   parts: [],
   vehicles: [],
   rentalCompanies: [],
-});
-const emptyFilters = () => ({
-  q: "",
-  from: "",
-  to: "",
-  clientId: "",
-  technicianId: "",
-  status: "",
 });
 export default function App() {
   const pendingMedia = usePendingMedia();
@@ -788,76 +781,9 @@ export default function App() {
                   finalizados
                 </div>
               </div>
-              <section className="br-section br-grid">
-                <Field
-                  label={
-                    canAdminister(user.role)
-                      ? "Buscar número, cliente ou técnico"
-                      : "Buscar número ou cliente"
-                  }
-                  value={filters.q}
-                  onChange={(q) => setFilters({ ...filters, q })}
-                />
-                <Field
-                  label="De"
-                  type="date"
-                  value={filters.from}
-                  onChange={(from) => setFilters({ ...filters, from })}
-                />
-                <Field
-                  label="Até"
-                  type="date"
-                  value={filters.to}
-                  onChange={(to) => setFilters({ ...filters, to })}
-                />
-                <label>
-                  Cliente
-                  <select
-                    value={filters.clientId}
-                    onChange={(e) =>
-                      setFilters({ ...filters, clientId: e.target.value })
-                    }
-                  >
-                    <option value="">Todos</option>
-                    {catalog.clients.map((client) => (
-                      <option key={client.id} value={client.id}>
-                        {client.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {canAdminister(user.role) && (
-                  <label>
-                    Técnico
-                    <select
-                      value={filters.technicianId}
-                      onChange={(e) =>
-                        setFilters({ ...filters, technicianId: e.target.value })
-                      }
-                    >
-                      <option value="">Todos</option>
-                      {catalog.technicians.map((technician) => (
-                        <option key={technician.id} value={technician.id}>
-                          {technician.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                <label>
-                  Status
-                  <select
-                    value={filters.status}
-                    onChange={(e) =>
-                      setFilters({ ...filters, status: e.target.value })
-                    }
-                  >
-                    <option value="">Todos</option>
-                    <option value="draft">Em preenchimento</option>
-                    <option value="finalized">Finalizado</option>
-                  </select>
-                </label>
-              </section>
+              <RecordFilters key={kind} value={filters} onChange={setFilters}
+                clients={catalog.clients} technicians={catalog.technicians}
+                showTechnician={canAdminister(user.role)} />
               <div className="br-table-wrap">
                 <table>
                   <thead>

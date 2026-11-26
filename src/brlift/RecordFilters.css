@@ -1,0 +1,57 @@
+.br-record-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+.br-record-filter-bar > label {
+  margin: 0;
+  min-width: 0;
+}
+.br-record-filter-bar input {
+  min-height: 44px;
+}
+.br-record-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 44px;
+  min-height: 44px;
+  white-space: nowrap;
+  border-radius: 8px;
+  padding-inline: 12px;
+}
+.br-record-filter-toggle[aria-expanded="true"],
+.br-record-filter-toggle[data-active="true"] {
+  color: #e4f38a;
+  background: #30371b;
+  border-color: #899519;
+}
+.br-record-filter-toggle small {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 4px;
+  border-radius: 10px;
+  background: #cae211;
+  color: #11120d;
+  font-size: 11px;
+  font-weight: 800;
+}
+.br-record-filter-panel {
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid #393c44;
+  display: grid;
+  gap: 14px;
+}
+.br-record-filter-clear {
+  justify-self: start;
+  min-height: 44px;
+}
+@media (max-width: 440px) {
+  .br-record-filter-toggle > span { display: none; }
+  .br-record-filter-toggle { padding-inline: 9px; }
+}
