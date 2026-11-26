@@ -882,6 +882,22 @@ td strong {
   max-height: 90vh;
   overflow: auto;
 }
+.br-confirmation {
+  color: var(--text, #f2f2f3);
+  max-width: min(440px, calc(100% - 32px));
+  border-top: 3px solid #cae211;
+  border-radius: 16px;
+}
+.br-confirmation::backdrop { background: #0009; }
+.br-confirmation h2 { margin: 0 0 8px; }
+.br-confirmation p { margin: 0 0 18px; line-height: 1.55; }
+.br-confirmation .br-actions { justify-content: flex-end; gap: 12px; }
+.br-confirmation .br-confirm-danger { color: #ffb0a5; border-color: #a36258; }
+.br-pdf-dialog .br-pdf-actions { display: grid; gap: 12px; justify-content: stretch; }
+.br-pdf-actions button { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; }
+.br-pdf-actions .br-pdf-cancel { background: transparent; border-color: transparent; }
+.br-pdf-actions small { font-size: 12px; text-align: center; }
+.br-conflict-actions { gap: 12px; }
 .br-situations {
   display: flex;
   gap: 10px;

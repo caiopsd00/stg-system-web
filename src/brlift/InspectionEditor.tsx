@@ -86,18 +86,6 @@ function inspectionIdentityProgress(entry: Entry): Progress {
   return progress("complete", "O.S. OMIE e dados obrigatórios informados");
 }
 
-function initialPath(entry: Entry): string[] {
-  const payload = entry.payload as any;
-  if (inspectionIdentityProgress(entry).state !== "complete") return ["A"];
-  for (const section of payload.sections) {
-    const incomplete = section.items.find(
-      (item: any) => itemProgress(item).state !== "complete",
-    );
-    if (incomplete) return ["B", section.id, incomplete.id];
-  }
-  return ["C"];
-}
-
 function InspectionQuestionDialog({
   section,
   item,
@@ -280,7 +268,7 @@ export function InspectionEditor({
   const p = entry.payload,
     [pending, setPending] = useState(false),
     [query, setQuery] = useState(""),
-    [active, setActive] = useState<string[]>(() => initialPath(entry)),
+    [active, setActive] = useState<string[]>([]),
     [checklistMode, setChecklistMode] = useState<"choose" | "list" | "guided">(
       "choose",
     ),

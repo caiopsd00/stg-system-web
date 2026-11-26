@@ -1,12 +1,17 @@
 import type { CatalogKind, Entry, Media } from "../contracts/domain";
 import { documentFilename, type SignatureTarget } from "../contracts/domain";
 import { createId } from "./id";
+import { createRecordOutbox, type SaveIntent } from "./record-outbox";
 export const API = import.meta.env.VITE_API_URL || "/api";
 let databaseId = "";
+let actorId = "";
+let authGeneration = 0;
+const savedListeners = new Set<(item: Entry) => void>();
+const conflictListeners = new Set<() => void>();
 export function databaseHeaders() {
   return { "X-BRLIFT-Database": databaseId, "X-BRLIFT-Contract": "4" };
 }
-export async function request<T = any>(
+async function rawRequest<T = any>(
   url: string,
   body?: any,
   method = body ? "POST" : "GET",
@@ -19,30 +24,83 @@ export async function request<T = any>(
   });
   const value = await response.json().catch(() => ({}));
   if (!response.ok)
-    throw new Error(value.error || "Não foi possível conectar à API.");
+    throw Object.assign(new Error(value.error || "Não foi possível conectar à API."), { status: response.status });
+  return value;
+}
+
+export async function request<T = any>(url: string, body?: any, method?: string): Promise<T> {
+  const auth = url.startsWith("/auth/");
+  const generation = auth ? ++authGeneration : authGeneration;
+  const priorActor = actorId;
+  if (url === "/auth/logout" || url === "/auth/login") actorId = "";
+  const value = await rawRequest(url, body, method).catch((error) => {
+    if (url === "/auth/logout" && generation === authGeneration) actorId = priorActor;
+    throw error;
+  });
   if (url === "/auth/login" || url === "/auth/me") {
     if (value.contractVersion !== 4 || !value.databaseId)
       throw Error("Atualize o backend BR LIFT antes de continuar.");
-    databaseId = value.databaseId;
+    if (generation === authGeneration) {
+      databaseId = value.databaseId;
+      actorId = value.user?.id || "";
+    }
   }
+  if (actorId && url !== "/auth/logout") kickSavedVersions();
   return value;
 }
 export function catalogs(kind: CatalogKind) {
   return request("/catalog/" + kind);
 }
-export async function saveEntry(entry: Entry, mutationId = createId()) {
+async function saveEntry(entry: Entry, mutationId: string, saveIntent?: SaveIntent) {
   return (
-    await request(
+    await rawRequest(
       "/" + entry.kind + "/" + entry.id,
       {
         ...entry,
         date: entry.payload.formRevision === 2 ? undefined : entry.date,
         baseVersion: entry.version,
         mutationId,
+        saveIntent,
       },
       "PUT",
     )
   ).item as Entry;
+}
+
+const outbox = createRecordOutbox({
+  storage: () => localStorage,
+  scope: () => databaseId && actorId ? `${databaseId}:${actorId}` : null,
+  id: createId,
+  submit: saveEntry,
+  onSent: (item) => savedListeners.forEach((listener) => listener(item)),
+  onConflict: () => conflictListeners.forEach((listener) => listener()),
+  lock: (key, run) => typeof navigator !== "undefined" && navigator.locks ? navigator.locks.request(key, run) : run(),
+});
+
+let syncing = false;
+export function kickSavedVersions() {
+  if (syncing) return;
+  syncing = true;
+  void outbox.flush().catch(() => undefined).finally(() => { syncing = false; });
+}
+export const saveVersion = outbox.save;
+export const stageVersion = outbox.stage;
+export const discardConflict = outbox.discardConflict;
+export function savedConflicts() {
+  try { return outbox.conflicts(); }
+  catch { return []; }
+}
+export function onSaveConflict(listener: () => void) {
+  conflictListeners.add(listener);
+  return () => { conflictListeners.delete(listener); };
+}
+export function pendingVersions() {
+  try { return outbox.pending(); }
+  catch { return []; }
+}
+export function onVersionSaved(listener: (item: Entry) => void) {
+  savedListeners.add(listener);
+  return () => { savedListeners.delete(listener); };
 }
 export function mediaUrl(uri: string) {
   return uri.startsWith("/api/") ? API.replace(/\/api$/, "") + uri : uri;
@@ -120,20 +178,18 @@ export async function uploadData(
 ): Promise<Media> {
   return (await request("/media", { dataUrl, name, signature })).media;
 }
-export async function download(entry: Entry, format: "pdf" | "docx" = "pdf") {
+export async function preparePdf(entry: Entry): Promise<File> {
   const res = await fetch(
-    API + "/" + entry.kind + "/" + entry.id + "/document/" + format,
+    API + "/" + entry.kind + "/" + entry.id + "/document/pdf",
     { credentials: "include", headers: databaseHeaders() },
   );
-  if (!res.ok) throw Error((await res.json()).error);
-  const url = URL.createObjectURL(await res.blob());
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = documentFilename(
-    entry.clientName || entry.payload.clientSnapshot?.name,
-    entry.number,
-    format,
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw Error(error.error || "Não foi possível gerar o PDF.");
+  }
+  kickSavedVersions();
+  const name = documentFilename(
+    entry.clientName || entry.payload.clientSnapshot?.name, entry.number, "pdf",
   );
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return new File([await res.blob()], name, { type: "application/pdf" });
 }

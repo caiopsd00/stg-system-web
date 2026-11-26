@@ -342,7 +342,7 @@ export function Fold({
           aria-controls={uid}
           aria-label={title}
           onClick={() => {
-            open ? context.setActive(parent) : context.reveal(path, false);
+            context.setActive(open ? parent : path);
           }}
         >
           <span className="br-fold-chevron" aria-hidden="true">

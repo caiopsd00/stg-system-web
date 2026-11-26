@@ -68,13 +68,14 @@ atendimento. Não há busca por botão nem gravação direta do cadastro na linh
 Remover peça retira somente a linha; Excluir desativa o cadastro mediante
 confirmação, preservando o histórico. Salvar/Finalizar grava as linhas do atendimento.
 
-O atendimento usa seções expansíveis: somente uma seção principal fica aberta.
+Atendimento e inspeção começam com todas as seções fechadas. Somente uma
+ramificação fica aberta por vez, também nos grupos internos.
 Equipe/profissionais, motivos/serviços, peças e dias também abrem individualmente.
 Clicar fora, no título da página ou em áreas vazias preserva o último bloco em uso.
-Entrar em outra seção troca a seção ativa; somente fechar o cabeçalho manualmente
-pode deixar todas fechadas. Ao entrar em uma seção com itens pendentes, o caminho
-até o item a preencher é aberto automaticamente (por exemplo Equipe → Profissional 1).
-Essa orientação acontece ao entrar, sem trocar o foco a cada caractere digitado.
+Entrar em outra seção troca a seção ativa. Fechar o pai fecha seus descendentes.
+Clicar em um cabeçalho abre somente aquele grupo, sem abrir filhos automaticamente.
+Adicionar itens, corrigir pendências ou navegar pelo teclado pode revelar o
+caminho específico, sem trocar o foco a cada caractere digitado.
 Fechar não apaga o preenchimento.
 Os indicadores atualizam durante a digitação: ○ Vazio, ◐ Pendente, ! Inválido,
 ✓ Completo. Campos opcionais não se tornam obrigatórios; peças e cronograma
@@ -133,8 +134,14 @@ novo devem ser editados pelo web atualizado enquanto o mobile não for adaptado.
 Após reset, recarregue a página e entre com o admin recriado;
 o login anterior não existe mais. Inicialização/reset pertencem ao backend.
 Este frontend não executa SQL nem recebe credenciais PostgreSQL.
-O web requer conexão. O preenchimento offline é do aplicativo mobile.
-Fotos e assinaturas precisam terminar de enviar antes da finalização.
+No formulário aberto, **Salvar versão** guarda o conteúdo mesmo sem conexão,
+sem alterar o status. **Finalizar** e **Gerar PDF** validam antes de salvar.
+Versões pendentes ficam no navegador, separadas por banco e conta, e são
+reenviadas automaticamente ao voltar a conexão ou ao usar a API. Uma versão
+mais recente do servidor não é sobrescrita em caso de conflito.
+Login, abertura de registros que ainda não estão carregados, fotos/assinaturas
+no web e geração do PDF continuam a precisar da API. O mobile mantém o fluxo
+offline para captura e preenchimento em campo.
 
 No navegador do celular, CPF, O.S. e ano solicitam teclado numérico. Quantidades,
 KM, horímetros e pausas solicitam teclado numérico com separador decimal;

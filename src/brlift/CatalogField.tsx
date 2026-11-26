@@ -1,4 +1,5 @@
 import { CatalogSelect } from "./CatalogSelect";
+import { confirmAction } from "./ConfirmationDialog";
 import { useContext, useEffect, useState } from "react";
 import { UserContext } from "./UserContext";
 import { catalogActions } from "./catalog-permissions";
@@ -246,9 +247,7 @@ export function CatalogField({
               onClick={async () => {
                 if (
                   !selected ||
-                  !confirm(
-                    "Desativar este cadastro? O histórico será preservado.",
-                  )
+                  !(await confirmAction("Desativar cadastro?", "O histórico será preservado.", "Desativar", true))
                 )
                   return;
                 setBusy(true);

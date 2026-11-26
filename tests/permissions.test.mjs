@@ -75,3 +75,13 @@ test("registro delegado sai do editor; equipe e aprovador mantêm acesso", () =>
   for (const role of ["admin", "technician_admin"])
     assert.equal(recordVisibleToUser(entry, { id: "admin", role }, []), true);
 });
+
+test("somente o autor vê a cópia de trabalho sem equipe", () => {
+  const author = { id: "owner", role: "technician" };
+  const technicians = [{ id: "own-tech", data: { userId: author.id } }, { id: "other-tech", data: { userId: "other" } }];
+  const entry = { kind: "reports", status: "draft", draftAuthorId: author.id, serverTechnicianIds: [], payload: newReport() };
+  assert.equal(recordVisibleToUser(entry, author, technicians), true);
+  assert.equal(recordVisibleToUser(entry, { ...author, id: "other" }, technicians), false);
+  assert.equal(recordVisibleToUser({ ...entry, serverTechnicianIds: ["other-tech"] }, author, technicians), false);
+  assert.equal(recordVisibleToUser({ ...entry, status: "finalized" }, author, technicians), false);
+});

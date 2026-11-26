@@ -14,7 +14,10 @@ import {
   createTemplateSections,
   documentFields,
 } from "../contracts/inspection-template";
-import { catalogs, download, request, saveEntry } from "./api";
+import { catalogs, discardConflict, preparePdf, kickSavedVersions, onSaveConflict, onVersionSaved, pendingVersions, request, savedConflicts, saveVersion, stageVersion } from "./api";
+import type { SaveConflict } from "./record-outbox";
+import { ConfirmationDialog, confirmAction } from "./ConfirmationDialog";
+import { PdfActionsDialog } from "./PdfActionsDialog";
 import { IdentificationFields } from "./IdentificationFields";
 import { EntrySummary } from "./EntrySummary";
 import { Field } from "./Fields";
@@ -65,12 +68,15 @@ export default function App() {
     [entry, setEntry] = useState<Entry | null>(null),
     [detail, setDetail] = useState<Entry | null>(null);
   const [catalog, setCatalog] = useState(emptyCatalog);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [conflicts, setConflicts] = useState<SaveConflict[]>([]);
+  const [resolution, setResolution] = useState<{ conflict: SaveConflict; source: "server" | "local" } | null>(null);
   const [filters, setFilters] = useState(emptyFilters),
     [dirty, setDirty] = useState(false);
   const [finalizeAttempted, setFinalizeAttempted] = useState(false);
-  const [confirmFinalize, setConfirmFinalize] = useState(false);
   const formIssues =
     entry && finalizeAttempted ? finalizationIssues(entry) : [];
+  const entryConflict = entry && conflicts.find(({ entry: copy }) => copy.kind === entry.kind && copy.id === entry.id);
   const listRequestVersion = useRef(0);
   const catalogRequestVersion = useRef(0);
   useEffect(() => {
@@ -78,6 +84,21 @@ export default function App() {
       .then((r) => setUser(r.user))
       .catch(() => {})
       .finally(() => setBoot(false));
+  }, []);
+  useEffect(() => onVersionSaved((saved) => {
+    setConflicts(savedConflicts());
+    setEntry((current) => current?.id === saved.id && current.version < saved.version
+      ? { ...current, version: saved.version }
+      : current);
+    setEntries((items) => items.map((item) => item.id === saved.id ? saved : item));
+  }), []);
+  useEffect(() => onSaveConflict(() => {
+    setConflicts(savedConflicts());
+    void reload().catch(() => undefined);
+  }), [user, kind, filters]);
+  useEffect(() => {
+    window.addEventListener("online", kickSavedVersions);
+    return () => window.removeEventListener("online", kickSavedVersions);
   }, []);
   async function reloadCatalog() {
     const version = ++catalogRequestVersion.current;
@@ -92,6 +113,7 @@ export default function App() {
       );
   }
   async function reload() {
+    setConflicts(savedConflicts());
     const version = ++listRequestVersion.current;
     const params = new URLSearchParams(
       Object.entries(filters).filter(
@@ -100,7 +122,13 @@ export default function App() {
       ),
     );
     const r = await request("/" + kind + "?" + params);
-    if (version === listRequestVersion.current) setEntries(r.items);
+    if (version === listRequestVersion.current) {
+      const items = r.items as Entry[];
+      const pending = pendingVersions().filter((item) => item.kind === kind);
+      const local = new Map(pending.map((item) => [item.id, item]));
+      const visible = items.map((item) => local.get(item.id) || item);
+      setEntries(params.size ? visible : [...pending.filter((item) => !items.some((server) => item.id === server.id)), ...visible]);
+    }
   }
   function clearSessionData() {
     listRequestVersion.current++;
@@ -110,9 +138,11 @@ export default function App() {
     setFilters(emptyFilters());
     setEntry(null);
     setDetail(null);
+    setPdfFile(null);
+    setConflicts([]);
+    setResolution(null);
     setDirty(false);
     setFinalizeAttempted(false);
-    setConfirmFinalize(false);
     setAccountPage(null);
     setError("");
     setNotice("");
@@ -134,11 +164,12 @@ export default function App() {
     return () => window.removeEventListener("beforeunload", before);
   }, [dirty]);
   function update(e: Entry) {
-    setEntry(e);
+    setEntry((previous) => previous?.id === e.id && previous.version > e.version ? { ...e, version: previous.version } : e);
     setDirty(true);
   }
   function create() {
     if (busy) return;
+    setResolution(null);
     const id = createId();
     const ownTechnician = isTechnician(user?.role)
       ? catalog.technicians.find((item) => item.data.userId === user.id)
@@ -178,7 +209,6 @@ export default function App() {
     });
     setDirty(false);
     setFinalizeAttempted(false);
-    setConfirmFinalize(false);
     setError("");
     setNotice("");
     setBusy(true);
@@ -202,9 +232,9 @@ export default function App() {
       next.payload.clientSignature ??= next.payload.signature;
     }
     setEntry(next);
+    setResolution(null);
     setDirty(false);
     setFinalizeAttempted(false);
-    setConfirmFinalize(false);
     setError("");
     setNotice(
       merged
@@ -212,7 +242,45 @@ export default function App() {
         : "",
     );
   }
-  function leave() {
+  async function reviewConflict(conflict: SaveConflict, source: "server" | "local") {
+    if (busy || pendingMedia) return;
+    if (dirty && !(await confirmAction(
+      "Trocar a versão em revisão?", "As alterações ainda não salvas desta revisão serão descartadas.", "Trocar versão", true,
+    ))) return;
+    setBusy(true);
+    try {
+      const { item } = await request<{ item: Entry }>("/" + conflict.entry.kind + "/" + conflict.entry.id);
+      if (!savedConflicts().some((current) => current.token === conflict.token))
+        throw Error("A cópia mudou. Abra as opções de revisão novamente.");
+      editRecord(source === "server" ? item : { ...conflict.entry, status: item.status, version: item.version });
+      setDetail(null);
+      setResolution({ conflict, source });
+      setNotice(source === "local"
+        ? "Você está revisando a cópia local. Ela só substitui a versão do servidor se você salvar e confirmar."
+        : "Você está revisando a versão do servidor. A outra cópia continua guardada neste navegador.");
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function keepServerVersion(conflict: SaveConflict) {
+    if (busy || pendingMedia || !(await confirmAction(
+      "Manter versão do servidor?", "A cópia em conflito guardada neste navegador será descartada.", "Manter versão do servidor", true,
+    ))) return;
+    setBusy(true);
+    try {
+      const { item } = await request<{ item: Entry }>("/" + conflict.entry.kind + "/" + conflict.entry.id);
+      discardConflict(conflict);
+      editRecord(item);
+      setNotice("Versão do servidor mantida.");
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function leave() {
     if (busy) {
       setError("Aguarde a operação em andamento antes de sair.");
       return false;
@@ -221,27 +289,37 @@ export default function App() {
       setError("Aguarde o envio das fotos e assinaturas antes de sair.");
       return false;
     }
-    if (
-      dirty &&
-      !confirm("Há alterações não salvas. Deseja sair do formulário?")
-    )
-      return false;
+    if (entry && (resolution || entryConflict)) {
+      if (dirty && !(await confirmAction(
+        "Sair da revisão?", "As alterações desta revisão não serão salvas. A cópia em conflito continua guardada.", "Sair da revisão", true,
+      ))) return false;
+    } else if (entry && (dirty || entry.version === 0)) {
+      try {
+        const next = { ...entry, updatedAt: new Date().toISOString() };
+        const delivery = stageVersion(next);
+        setEntries((items) => [next, ...items.filter((item) => item.id !== next.id)]);
+        void delivery.catch(() => undefined);
+      } catch (error) {
+        setError((error as Error).message);
+        return false;
+      }
+    }
     setEntry(null);
+    setResolution(null);
     setDirty(false);
     setFinalizeAttempted(false);
-    setConfirmFinalize(false);
     setError("");
-    void reload().catch((cause) => setError((cause as Error).message));
+    void reload().catch(() => undefined);
     return true;
   }
-  function navigate(target: Kind | "users" | "profile") {
+  async function navigate(target: Kind | "users" | "profile") {
     if (
       target === "users" || target === "profile"
         ? accountPage === target
         : !accountPage && kind === target
     )
       return;
-    if (entry && !leave()) return;
+    if (entry && !(await leave())) return;
     setDetail(null);
     setError("");
     setNotice("");
@@ -252,12 +330,7 @@ export default function App() {
       setKind(target);
     }
   }
-  function requestFinalize() {
-    if (!entry) return;
-    if (pendingMedia) {
-      setError("Aguarde o envio das fotos e assinaturas antes de finalizar.");
-      return;
-    }
+  function validateCurrent(entry: Entry) {
     setFinalizeAttempted(true);
     setError("");
     const issues = finalizationIssues(entry);
@@ -273,106 +346,108 @@ export default function App() {
           first?.scrollIntoView({ block: "center", behavior: "smooth" });
         });
       });
-      return;
+      return false;
     }
     try {
       if (entry.kind === "reports") {
         validateReportTeam(entry);
         validateReport(entry.payload, true);
       }
-      setConfirmFinalize(true);
+      return true;
     } catch (error) {
       setError((error as Error).message);
+      return false;
     }
   }
-  async function saveDraft() {
+  async function act(action: "save" | "finish" | "pdf") {
     if (!entry || busy || pendingMedia) return;
+    if (resolution || entryConflict) {
+      if (action !== "save" || !resolution) return;
+      const detail = resolution.source === "local"
+        ? "O conteúdo revisado da cópia local substituirá a versão do servidor que você abriu."
+        : "As alterações da revisão serão salvas e substituirão a cópia em conflito deste navegador.";
+      if (!(await confirmAction("Salvar a versão revisada?", detail, "Salvar versão revisada", true))) return;
+    }
+    if (action !== "save" && !validateCurrent(entry)) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const saved = await saveEntry({ ...entry, status: "draft" });
-      const visible = recordVisibleToUser(saved, user, catalog.technicians);
-      setEntry(visible ? saved : null);
-      setDirty(false);
-      setNotice(
-        visible
-          ? "Rascunho salvo no servidor."
-          : "Rascunho salvo para a equipe selecionada. Como você não está vinculado, ele não aparecerá na sua lista.",
-      );
-      await reload();
-    } catch (cause) {
-      setError((cause as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function finalize(withPdf: boolean) {
-    if (!entry) return;
-    if (finalizationIssues(entry).length) {
-      setConfirmFinalize(false);
-      setFinalizeAttempted(true);
-      return;
-    }
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const next = {
-        ...entry,
-        status: "finalized" as const,
-      };
-      if (next.kind === "reports") {
-        validateReportTeam(next);
-        validateReport(next.payload, true);
-      } else
+      const next = { ...entry, updatedAt: new Date().toISOString() };
+      if (action === "finish") next.status = "finalized";
+      if (action === "finish" && next.kind === "inspections")
         next.payload = {
           ...next.payload,
-          signature: undefined,
           documentFields: {
             ...next.payload.documentFields,
             "000": next.number,
           },
-          finalizedAt: new Date().toISOString(),
+          finalizedAt: next.payload.finalizedAt || next.updatedAt,
         };
-      const saved = await saveEntry(next);
-      setConfirmFinalize(false);
-      setEntry(null);
+      const { item: saved, reason, conflict } = await saveVersion(next, action === "finish" ? "finalize" : undefined, resolution?.conflict.token);
+      setResolution(null);
+      setConflicts(savedConflicts());
+      if (conflict) {
+        setDirty(false);
+        setNotice(reason || "A cópia continua salva neste navegador.");
+        return;
+      }
+      const visible = !saved || recordVisibleToUser(saved, user, catalog.technicians);
+      const current = saved || next;
+      setEntry(visible ? current : null);
       setDirty(false);
       setFinalizeAttempted(false);
-      setDetail(null);
-      const visible = recordVisibleToUser(saved, user, catalog.technicians);
-      setNotice(
-        visible
-          ? "Registro finalizado e salvo no servidor."
-          : "Registro finalizado para a equipe selecionada. Como você não está vinculado, ele não aparecerá na sua lista e o PDF ficará disponível para a equipe.",
-      );
-      if (withPdf && visible) {
-        try {
-          await download(saved);
-        } catch (error) {
-          setError(
-            `Registro finalizado, mas o PDF não foi baixado: ${(error as Error).message}`,
-          );
-        }
+      setEntries((items) => visible ? [current, ...items.filter((item) => item.id !== current.id)] : items.filter((item) => item.id !== current.id));
+      if (!visible) {
+        setNotice("Salvo para a equipe selecionada.");
+      } else if (action === "pdf" && !saved) {
+        setNotice(reason || "Salvo neste navegador. Quando estiver conectado, toque em Gerar PDF novamente.");
+      } else if (saved && action === "pdf") {
+        setPdfFile(await preparePdf(saved));
+      } else {
+        setNotice(saved ? action === "finish" ? "Registro finalizado." : "Versão salva."
+          : reason || (action === "finish" ? "Finalizado neste navegador. O envio é automático." : "Salvo neste navegador. O envio é automático."));
       }
-      await reload();
     } catch (e) {
       setError((e as Error).message);
-      setConfirmFinalize(false);
     } finally {
       setBusy(false);
     }
   }
   async function pdf(e: Entry) {
+    const pending = pendingVersions().find((local) => local.kind === e.kind && local.id === e.id);
+    const current = pending || e;
+    if (finalizationIssues(current).length) {
+      setDetail(null);
+      editRecord(current);
+      validateCurrent(current);
+      return;
+    }
     setBusy(true);
     try {
-      await download(e);
+      if (pending) {
+        const { item, reason } = await saveVersion(pending);
+        if (!item) {
+          setNotice(reason || "Salvo neste navegador. Quando estiver conectado, toque em Gerar PDF novamente.");
+          return;
+        }
+        setPdfFile(await preparePdf(item));
+      } else {
+        setPdfFile(await preparePdf(e));
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+  function conflictActions(conflict: SaveConflict) {
+    return (
+      <div className="br-actions br-conflict-actions">
+        <button type="button" disabled={busy || pendingMedia > 0} onClick={() => void reviewConflict(conflict, "server")}>Abrir versão do servidor</button>
+        <button type="button" disabled={busy || pendingMedia > 0} onClick={() => void reviewConflict(conflict, "local")}>Revisar cópia local</button>
+      </div>
+    );
   }
   if (boot)
     return (
@@ -452,6 +527,8 @@ export default function App() {
     );
   return (
     <UserContext.Provider value={user}>
+      <ConfirmationDialog />
+      {pdfFile && <PdfActionsDialog file={pdfFile} onClose={() => setPdfFile(null)} />}
       <div className="br-app">
         <header className="br-header">
           <Brand />
@@ -490,10 +567,14 @@ export default function App() {
               className="br-logout-button"
               disabled={busy || pendingMedia > 0}
               onClick={async () => {
-                if (dirty && !confirm("Sair sem salvar?")) return;
-                await request("/auth/logout", {});
-                clearSessionData();
-                setUser(null);
+                if (dirty && !(await confirmAction("Sair da conta?", "Há alterações que ainda não foram salvas.", "Sair sem salvar", true))) return;
+                try {
+                  await request("/auth/logout", {});
+                  clearSessionData();
+                  setUser(null);
+                } catch {
+                  setError("Não foi possível sair da conta. Tente novamente quando estiver conectado.");
+                }
               }}
             >
               Sair
@@ -559,7 +640,9 @@ export default function App() {
                     {entry.number}
                   </h1>
                   <p>
-                    {dirty
+                    {resolution
+                      ? "Versão em revisão"
+                      : dirty
                       ? "Alterações não salvas"
                       : entry.version
                         ? "Versão " + entry.version + " salva"
@@ -567,6 +650,17 @@ export default function App() {
                   </p>
                 </div>
               </div>
+              {entryConflict && (
+                <section className="br-section">
+                  <p>Há duas versões. Escolha qual você quer revisar.</p>
+                  {conflictActions(entryConflict)}
+                  {resolution?.source === "server" && (
+                    <div className="br-actions">
+                      <button type="button" disabled={busy || pendingMedia > 0} onClick={() => void keepServerVersion(entryConflict)}>Manter versão do servidor</button>
+                    </div>
+                  )}
+                </section>
+              )}
               <FormErrors issues={formIssues}>
                 <fieldset
                   className="br-form-content"
@@ -635,83 +729,18 @@ export default function App() {
                   )}
                 </fieldset>
                 <footer className="br-save">
-                  {pendingMedia > 0 && (
-                    <p role="status">
-                      Aguarde o envio das fotos e assinaturas…
-                    </p>
-                  )}
-                  {entry.status === "draft" && (
-                    <button
-                      type="button"
-                      disabled={busy || pendingMedia > 0}
-                      onClick={saveDraft}
-                    >
-                      Salvar rascunho
-                    </button>
-                  )}
-                  <button
-                    className="primary"
-                    disabled={busy || pendingMedia > 0}
-                    onClick={requestFinalize}
-                  >
-                    Finalizar{" "}
-                    {entry.kind === "reports" ? "atendimento" : "inspeção"}
+                  {pendingMedia > 0 && <p role="status">Aguarde o envio das fotos e assinaturas…</p>}
+                  <button type="button" disabled={busy || pendingMedia > 0 || (!!entryConflict && !resolution)} onClick={() => void act("save")}>
+                    Salvar versão
+                  </button>
+                  <button type="button" className="primary" disabled={busy || pendingMedia > 0 || !!entryConflict || !!resolution} onClick={() => void act("finish")}>
+                    Finalizar {entry.kind === "reports" ? "atendimento" : "inspeção"}
+                  </button>
+                  <button type="button" disabled={busy || pendingMedia > 0 || !!entryConflict || !!resolution} onClick={() => void act("pdf")}>
+                    Gerar PDF
                   </button>
                 </footer>
               </FormErrors>
-              {confirmFinalize && (
-                <div
-                  className="br-modal"
-                  role="presentation"
-                  onMouseDown={(event) => {
-                    if (event.target === event.currentTarget)
-                      setConfirmFinalize(false);
-                  }}
-                >
-                  <section
-                    className="br-dialog br-finalize-dialog"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="br-finalize-title"
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") setConfirmFinalize(false);
-                    }}
-                  >
-                    <h2 id="br-finalize-title">
-                      Finalizar{" "}
-                      {entry.kind === "reports" ? "atendimento" : "inspeção"}?
-                    </h2>
-                    <p>
-                      Todos os campos obrigatórios estão válidos. Escolha como
-                      deseja concluir.
-                    </p>
-                    <div className="br-actions">
-                      <button
-                        type="button"
-                        onClick={() => setConfirmFinalize(false)}
-                        disabled={busy}
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => finalize(false)}
-                        disabled={busy}
-                      >
-                        Só finalizar
-                      </button>
-                      <button
-                        type="button"
-                        className="primary"
-                        onClick={() => finalize(true)}
-                        disabled={busy}
-                      >
-                        Finalizar e baixar PDF
-                      </button>
-                    </div>
-                  </section>
-                </div>
-              )}
             </>
           ) : (
             <>
@@ -736,6 +765,12 @@ export default function App() {
                   + {kind === "reports" ? "Novo atendimento" : "Nova inspeção"}
                 </button>
               </div>
+              {conflicts.filter(({ entry: copy }) => copy.kind === kind).map((conflict) => (
+                <section key={conflict.token} className="br-section">
+                  <p><strong>O.S. {conflict.entry.number || "sem número"}:</strong> a cópia local é diferente da versão do servidor.</p>
+                  {conflictActions(conflict)}
+                </section>
+              ))}
               <div className="br-metrics">
                 <div>
                   <strong>{entries.length}</strong> registros encontrados
@@ -866,11 +901,15 @@ export default function App() {
                               <button onClick={() => setDetail(e)}>
                                 Resumo
                               </button>
-                              <button onClick={() => editRecord(e)}>
+                              <button onClick={() => {
+                                const conflict = conflicts.find(({ entry: copy }) => copy.kind === e.kind && copy.id === e.id);
+                                if (conflict) void reviewConflict(conflict, "server");
+                                else editRecord(e);
+                              }}>
                                 Editar
                               </button>
                               <button disabled={busy} onClick={() => pdf(e)}>
-                                PDF
+                                Gerar PDF
                               </button>
                             </div>
                           </td>
@@ -921,7 +960,7 @@ export default function App() {
                     Editar
                   </button>
                   <button disabled={busy} onClick={() => pdf(detail)}>
-                    Baixar PDF
+                    Gerar PDF
                   </button>
                   <button onClick={() => setDetail(null)}>Fechar</button>
                 </div>

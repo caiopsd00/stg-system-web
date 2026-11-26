@@ -1,6 +1,7 @@
 import { canAdminister } from "../contracts/domain";
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { request } from "./api";
+import { confirmAction } from "./ConfirmationDialog";
 import {
   isTechnician,
   userRoleLabels,
@@ -132,9 +133,7 @@ export function UserRegistration({
     const active = !user.active;
     if (
       !active &&
-      !confirm(
-        `Desativar ${user.name}? O cadastro e o histórico serão preservados, mas o acesso será bloqueado.`,
-      )
+      !(await confirmAction(`Desativar ${user.name}?`, "O cadastro e o histórico serão preservados, mas o acesso será bloqueado.", "Desativar", true))
     )
       return;
     setBusy(true);

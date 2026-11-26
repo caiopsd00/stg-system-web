@@ -23,6 +23,7 @@ import type { FormIssue } from "./form-validation";
 import { InlineError } from "./FormErrors";
 import { AccordionRoot, Fold, openFold } from "./Accordion";
 import { createId } from "./id";
+import { confirmAction } from "./ConfirmationDialog";
 import {
   reportProgress,
   reportPendingPaths,
@@ -51,7 +52,7 @@ export function ReportEditor({
   validationIssues: FormIssue[];
 }) {
   const p = entry.payload as Report;
-  const [active, setActive] = useState<string[]>(["A"]);
+  const [active, setActive] = useState<string[]>([]);
   const statuses = reportProgress(entry);
   const fieldError = (key: string) =>
     validationIssues.find((issue) => issue.key === key)?.message;
@@ -94,13 +95,11 @@ export function ReportEditor({
               label,
             }))}
             value={p.type}
-            onChange={(type) => {
+            onChange={async (type) => {
               if (
                 isNonTravelReport(type) &&
                 hasReportTravel(p) &&
-                !confirm(
-                  "O atendimento interno ou remoto usa somente períodos de trabalho. Remover os dados de deslocamento do cronograma?",
-                )
+                !(await confirmAction("Remover deslocamentos?", "O atendimento interno ou remoto usa somente períodos de trabalho.", "Remover", true))
               )
                 return;
               set(changeReportType(p, type));
@@ -127,9 +126,9 @@ export function ReportEditor({
         {isNonTravelReport(p.type) && hasReportTravel(p) && (
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               if (
-                confirm("Remover os dados de deslocamento deste atendimento?")
+                await confirmAction("Remover deslocamentos?", "Os dados de deslocamento deste atendimento serão removidos.", "Remover", true)
               )
                 set(changeReportType(p, p.type));
             }}
